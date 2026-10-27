@@ -34,11 +34,14 @@ ACORDES = {
 
 RUTAS_NOTAS_WAV = {}
 RUTAS_ACORDES_WAV = {}
-
+# sample_rate = 44100  # Frecuencia de muestreo estándar para audio
+# num_samples = int(sample_rate * duracion) numero de muestras para la duración deseada
+#data_size = num_samples * 2  # 2 bytes por muestra (16 bits)
 def generar_wav_acorde(lista_frecuencias, duracion=1.5, sample_rate=44100):
     num_samples = int(sample_rate * duracion)
     data_size = num_samples * 2
-    
+
+    # Crear el encabezado WAV para que cualquier reproductor de audio reconoczca el .wav
     header = struct.pack(
         '<4sI4s4sIHHIIHH4sI',
         b'RIFF',
@@ -49,12 +52,14 @@ def generar_wav_acorde(lista_frecuencias, duracion=1.5, sample_rate=44100):
         b'data',
         data_size
     )
-    
+
+    # Modificamos envolvente para que no haya clics al inicio y al final del sonido
     samples = bytearray()
     attack = int(sample_rate * 0.08)   # 80 ms de ataque suave estilo pad
     release = int(sample_rate * 0.08)  # 80 ms de desvanecimiento suave
     num_notas = len(lista_frecuencias)
-    
+
+    # Generar la mezcla de ondas para el acorde
     for i in range(num_samples):
         t = i / sample_rate
         mezcla_onda = 0.0
@@ -76,6 +81,7 @@ def generar_wav_acorde(lista_frecuencias, duracion=1.5, sample_rate=44100):
         
     return header + samples
 
+# Preparar audio .wav para cada nota y acorde, para que se reproduzcan de manera instantánea
 def pregenerar_sonidos():
     global RUTAS_NOTAS_WAV, RUTAS_ACORDES_WAV
     
@@ -93,7 +99,7 @@ def pregenerar_sonidos():
             f.write(data)
         RUTAS_ACORDES_WAV[nombre] = ruta
         
-    print("Sintetizador de Acordes (Style Gesture-Synth) inicializado correctamente.")
+    print("Sintetizador de Acordes inicializado correctamente.")
 
 def reproducir_sonido(ruta_wav):
     if WINSOUND_DISPONIBLE and ruta_wav:
@@ -108,33 +114,47 @@ def reproducir_sonido(ruta_wav):
 # ==========================================
 # 2. RANGOS DE COLOR EN ESPACIO HSV
 # ==========================================
+# Definimos los rangos de color en HSV para cada ficha
+# Saturación entre 80 - 255 para eliminar colores descoloridos y fondo blanco
+# Brillo entre 80 - 255 para eliminar colores oscuros y sombras
+# Rosa (para la ficha rosa) - cerca del 150
 rosa_bajo = np.array([140, 100, 100])
 rosa_alto = np.array([170, 255, 255])
 
+# Azul (para la ficha azul) - cerca del 120
 azul_bajo = np.array([95, 100, 100])
 azul_alto = np.array([135, 255, 255])
 
+# Verde (para la ficha verde) - cerca del 60
 verde_bajo = np.array([40, 80, 80])
 verde_alto = np.array([85, 255, 255])
 
+# Amarillo (para la ficha amarilla) - cerca del 20
 amarillo_bajo = np.array([20, 100, 100])
 amarillo_alto = np.array([35, 255, 255])
 
+# Umbral de área mínima para considerar que una ficha es visible
 UMBRAL_AREA_MINIMA = 3000
 
+
 def evaluar_visibilidad(hsv_frame, bajo, alto):
+    # Evaluar si la ficha está visible en el frame actual
     mascara = cv2.inRange(hsv_frame, bajo, alto)
+    # Aplicar operaciones morfológicas para reducir ruido y mejorar la detección
     mascara = cv2.erode(mascara, None, iterations=2)
     mascara = cv2.dilate(mascara, None, iterations=2)
-    
+
+    # Encontrar contornos de la máscara
     contornos, _ = cv2.findContours(mascara, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    
+
+    # Determinar el contorno con el área máxima
     area_maxima = 0
     contorno_max = None
+    # Si hay contornos, encontrar el de mayor área
     if len(contornos) > 0:
         contorno_max = max(contornos, key=cv2.contourArea)
         area_maxima = cv2.contourArea(contorno_max)
-        
+    # Determinar si la ficha es visible según el área máxima encontrada    
     visible = area_maxima >= UMBRAL_AREA_MINIMA
     return visible, area_maxima, contorno_max
 
@@ -153,15 +173,15 @@ def main():
     print(" - Pulsa 'M' para cambiar entre MODO NOTAS y MODO ACORDES")
     print(" - Pulsa 'q' o 'ESC' para salir.")
 
-    modo_acordes = True  # Arranca en Modo Acordes estilo Gesture Synth
+    modo_acordes = True  # Arranca en Modo Acordes 
     clave_actual = ""
     clave_anterior = None
-
+    # Loop principal de captura de video y procesamiento
     while True:
         ret, frame = camara.read()
         if not ret:
             break
-            
+        # Suavizado del frame para reducir ruido y mejorar la detección de colores   
         frame_suavizado = cv2.blur(frame, (5, 5))
         hsv = cv2.cvtColor(frame_suavizado, cv2.COLOR_BGR2HSV)
         
@@ -206,30 +226,31 @@ def main():
             reproducir_sonido(ruta_audio)
             clave_anterior = clave_actual
 
-        # Interfaz Gráfica (HUD)
+        # Interfaz Gráfica 
         fichas = [
             ("ROSA", rosa_visible, c_rosa, (255, 0, 255)),
             ("AZUL", azul_visible, c_azul, (255, 0, 0)),
             ("VERDE", verde_visible, c_verde, (0, 255, 0)),
             ("AMARILLA", amarillo_visible, c_amarillo, (0, 255, 255))
         ]
-        
+
+        # Dibujar contornos y nombres de fichas detectadas
         for nombre, visible, contorno, color_bgr in fichas:
             if visible and contorno is not None:
                 x, y, w, h = cv2.boundingRect(contorno)
                 cv2.rectangle(frame, (x, y), (x + w, y + h), color_bgr, 2)
                 cv2.putText(frame, nombre, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_bgr, 2)
 
-        # Panel HUD
+        # Panel 
         cv2.rectangle(frame, (20, 20), (520, 115), (0, 0, 0), -1)
         cv2.rectangle(frame, (20, 20), (520, 115), (255, 255, 255), 2)
-        
-        modo_str = "MODO: ACORDES (Gesture-Synth)" if modo_acordes else "MODO: NOTAS INDIVIDUALES"
+        # Mostrar modo y nota/acorde actual
+        modo_str = "MODO: ACORDES " if modo_acordes else "MODO: NOTAS INDIVIDUALES"
         cv2.putText(frame, modo_str, (30, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
         cv2.putText(frame, f"SONANDO: {clave_actual}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
         cv2.putText(frame, f"['M': Cambiar Modo | 'q': Salir] - {estado_texto}", (30, 105), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
 
-        cv2.imshow("Gesture Synth OpenCV - Acordes y Notas", frame)
+        cv2.imshow("Acordes y Notas", frame)
         
         key = cv2.waitKey(1) & 0xFF
         if key in [ord('m'), ord('M')]:
