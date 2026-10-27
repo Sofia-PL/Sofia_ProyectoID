@@ -1,0 +1,14 @@
+# Entorno virtual de Python
+practicasID/
+venv/
+env/
+
+# Archivos temporales de audio generados por el sintetizador
+*.wav
+
+# Archivos de caché de Python
+__pycache__/
+*.pyc
+
+# Configuración local de VS Code
+.vscode/
