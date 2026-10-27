@@ -48,6 +48,37 @@ SONIDOS_PYGAME_ACORDES = {}
 canal_loop = None
 canal_vivo = None
 
+# Variable global para el ajuste interactivo de brillo mediante Trackbar
+incremento_brillo = 100  # 100 es el valor neutro inicial (rango 0 a 200)
+
+def actualizar_brillo_trackbar(val):
+    global incremento_brillo
+    incremento_brillo = val
+
+def ajustar_brillo_frame(img, ajuste):
+    """
+    Ajusta la luminosidad del fotograma modificando el canal V (Value) en HSV.
+    Técnica oficial de la asignatura (Ejercicio 28 / VIDEO BARRA).
+    """
+    offset = ajuste - 100  # Convertir rango  a offset [-100, +100]
+    if offset == 0:
+        return img
+    
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    h, s, v = cv2.split(hsv)
+    
+    if offset > 0:
+        limite = 255 - offset
+        v[v > limite] = 255
+        v[v <= limite] += offset
+    else:
+        abs_offset = abs(offset)
+        v[v < abs_offset] = 0
+        v[v >= abs_offset] -= abs_offset
+        
+    hsv = cv2.merge((h, s, v))
+    return cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+
 def generar_bytes_wav(lista_frecuencias, duracion=1.5, sample_rate=44100):
     num_samples = int(sample_rate * duracion)
     data_size = num_samples * 2
@@ -107,7 +138,7 @@ def pregenerar_sonidos():
             SONIDOS_PYGAME_NOTAS[nombre] = pygame.mixer.Sound(ruta)
         
     for nombre, freqs in ACORDES.items():
-        clave_limpia = nombre.split()[0]
+        clave_limpia = "".join(e for e in nombre if e.isalnum())
         data = generar_bytes_wav(freqs)
         ruta = f"temp_acorde_{clave_limpia}.wav"
         with open(ruta, "wb") as f:
@@ -157,17 +188,21 @@ def detener_audio_loop():
 # ==========================================
 # 2. RANGOS DE COLOR EN ESPACIO HSV
 # ==========================================
-rosa_bajo = np.array([140, 50, 50])
-rosa_alto = np.array([175, 255, 255])
+# ROSA FOSFORITO (Subrayador)
+rosa_bajo = np.array([140, 100, 100])
+rosa_alto = np.array([170, 255, 255])
 
-azul_bajo = np.array([90, 50, 50])
-azul_alto = np.array([130, 255, 255])
+# AZUL
+azul_bajo = np.array([95, 100, 100])
+azul_alto = np.array([135, 255, 255])
 
-verde_bajo = np.array([35, 50, 50])
+# VERDE (Subrayador verde)
+verde_bajo = np.array([40, 80, 80])
 verde_alto = np.array([85, 255, 255])
 
-amarillo_bajo = np.array([20, 50, 50])
-amarillo_alto = np.array([34, 255, 255])
+# AMARILLO (Subrayador amarillo)
+amarillo_bajo = np.array([20, 100, 100])
+amarillo_alto = np.array([35, 255, 255])
 
 UMBRAL_AREA_MINIMA = 3000
 
@@ -191,14 +226,20 @@ def main():
     if WINSOUND_DISPONIBLE or PYGAME_DISPONIBLE:
         pregenerar_sonidos()
         
-    camara = cv2.VideoCapture(2)
+    camara = cv2.VideoCapture(1)
     
     if not camara.isOpened():
         print("Error: No es posible abrir la cámara web.")
         return
 
+    # Crear ventana interactiva con Trackbar de Brillo (Ejercicio VIDEO BARRA)
+    nombre_ventana = "Gesture Synth OpenCV + Loopstation"
+    cv2.namedWindow(nombre_ventana)
+    cv2.createTrackbar("Ajuste Brillo", nombre_ventana, 100, 200, actualizar_brillo_trackbar)
+
     print("=== SINTETIZADOR DE GESTOS + LOOPSTATION ACTIVO ===")
     print("Controles:")
+    print(" - Mueve el deslizador 'Ajuste Brillo' en la ventana para compensar la luz ambiental.")
     print(" - Pulsa 'R' para Empezar a Grabar / Detener y Repetir Bucle (Loop)")
     print(" - Pulsa 'C' para Borrar el Bucle grabado")
     print(" - Pulsa 'M' para cambiar entre MODO NOTAS y MODO ACORDES")
@@ -223,10 +264,14 @@ def main():
             break
             
         t_actual = time.time()
-        frame_suavizado = cv2.blur(frame, (5, 5))
+        
+        # 1. Ajuste dinámico de brillo en tiempo real antes de binarizar
+        frame_ajustado = ajustar_brillo_frame(frame, incremento_brillo)
+        
+        frame_suavizado = cv2.blur(frame_ajustado, (5, 5))
         hsv = cv2.cvtColor(frame_suavizado, cv2.COLOR_BGR2HSV)
         
-        # Visibilidad
+        # 2. Visibilidad y segmentación sobre la imagen corregida
         rosa_visible, _, c_rosa = evaluar_visibilidad(hsv, rosa_bajo, rosa_alto)
         azul_visible, _, c_azul = evaluar_visibilidad(hsv, azul_bajo, azul_alto)
         verde_visible, _, c_verde = evaluar_visibilidad(hsv, verde_bajo, verde_alto)
@@ -237,7 +282,7 @@ def main():
         verde_tapado = not verde_visible
         amarillo_tapado = not amarillo_visible
         
-        # Combinaciones
+        # Combinaciones musicales
         if rosa_tapado and azul_tapado:
             clave_actual = "VI (La menor)" if modo_acordes else "LA"
             estado_texto = "Rosa + Azul Tapadas"
@@ -260,7 +305,7 @@ def main():
             clave_actual = "I (Do Mayor)" if modo_acordes else "DO"
             estado_texto = "Todas visibles"
 
-        # 1. Reproducción en vivo
+        # 3. Reproducción en vivo
         if clave_actual != clave_anterior:
             reproducir_sonido_vivo(clave_actual, modo_acordes)
             
@@ -270,7 +315,7 @@ def main():
                 
             clave_anterior = clave_actual
 
-        # 2. Reproducción del Loop grabado de fondo
+        # 4. Reproducción del Loop grabado de fondo
         if estado_loop == 'PLAYING' and duracion_loop > 0 and len(eventos_grabados) > 0:
             t_en_loop = (t_actual - tiempo_inicio_reproduccion) % duracion_loop
             
@@ -286,7 +331,7 @@ def main():
                 reproducir_sonido_loop(clave_loop, modo_loop_ev)
                 indice_evento_loop = idx_evento
 
-        # Interfaz Gráfica (HUD)
+        # 5. Interfaz Gráfica (HUD)
         fichas = [
             ("ROSA", rosa_visible, c_rosa, (255, 0, 255)),
             ("AZUL", azul_visible, c_azul, (255, 0, 0)),
@@ -297,32 +342,32 @@ def main():
         for nombre, visible, contorno, color_bgr in fichas:
             if visible and contorno is not None:
                 x, y, w, h = cv2.boundingRect(contorno)
-                cv2.rectangle(frame, (x, y), (x + w, y + h), color_bgr, 2)
-                cv2.putText(frame, nombre, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_bgr, 2)
+                cv2.rectangle(frame_ajustado, (x, y), (x + w, y + h), color_bgr, 2)
+                cv2.putText(frame_ajustado, nombre, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_bgr, 2)
 
-        # Panel HUD
-        cv2.rectangle(frame, (20, 20), (560, 140), (0, 0, 0), -1)
-        cv2.rectangle(frame, (20, 20), (560, 140), (255, 255, 255), 2)
+        # Panel HUD de control
+        cv2.rectangle(frame_ajustado, (20, 20), (560, 140), (0, 0, 0), -1)
+        cv2.rectangle(frame_ajustado, (20, 20), (560, 140), (255, 255, 255), 2)
         
         modo_str = "MODO: ACORDES (Gesture-Synth)" if modo_acordes else "MODO: NOTAS INDIVIDUALES"
-        cv2.putText(frame, modo_str, (30, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-        cv2.putText(frame, f"EN VIVO: {clave_actual}", (30, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        cv2.putText(frame_ajustado, modo_str, (30, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+        cv2.putText(frame_ajustado, f"EN VIVO: {clave_actual}", (30, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
         
         if estado_loop == 'IDLE':
-            loop_str = "LOOPSTATION: Inactivo (Pulsa 'R' para pulsar y pulsar de nuevo para finalizar)"
+            loop_str = "LOOPSTATION: Inactivo (Pulsa 'R' para grabar)"
             color_loop = (200, 200, 200)
         elif estado_loop == 'RECORDING':
             tiempo_rec = t_actual - tiempo_inicio_grabacion
             loop_str = f" GRABANDO LOOP... ({tiempo_rec:.1f}s) - Pulsa 'R' para terminar"
             color_loop = (0, 0, 255)
         elif estado_loop == 'PLAYING':
-            loop_str = f" REPRODUCIENDO LOOP ({duracion_loop:.1f}s) - Pulsa 'C' para borrar"
+            loop_str = f"REPRODUCIENDO LOOP ({duracion_loop:.1f}s) - Pulsa 'C' para borrar"
             color_loop = (0, 255, 0)
             
-        cv2.putText(frame, loop_str, (30, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color_loop, 2)
-        cv2.putText(frame, "['R': Rec/Stop Loop | 'C': Borrar | 'M': Modo | 'q': Salir]", (30, 125), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
+        cv2.putText(frame_ajustado, loop_str, (30, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color_loop, 2)
+        cv2.putText(frame_ajustado, f"['R': Rec/Stop | 'C': Borrar | 'M': Modo | Nivel Brillo: {incremento_brillo}]", (30, 125), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
 
-        cv2.imshow("Gesture Synth OpenCV + Loopstation", frame)
+        cv2.imshow(nombre_ventana, frame_ajustado)
         
         # Teclas de control
         key = cv2.waitKey(1) & 0xFF
@@ -332,14 +377,14 @@ def main():
                 estado_loop = 'RECORDING'
                 tiempo_inicio_grabacion = t_actual
                 eventos_grabados = [(0.0, clave_actual, modo_acordes)]
-                print(" Grabación de Loop iniciada...")
+                print("Grabación de Loop iniciada...")
             elif estado_loop == 'RECORDING':
                 duracion_loop = max(0.5, t_actual - tiempo_inicio_grabacion)
                 if len(eventos_grabados) > 0:
                     estado_loop = 'PLAYING'
                     tiempo_inicio_reproduccion = t_actual
                     indice_evento_loop = -1
-                    print(f" Loop grabado ({duracion_loop:.2f} s). Reproduciendo...")
+                    print(f"Loop grabado ({duracion_loop:.2f} s). Reproduciendo...")
                 else:
                     estado_loop = 'IDLE'
             elif estado_loop == 'PLAYING':
@@ -347,14 +392,14 @@ def main():
                 detener_audio_loop()
                 tiempo_inicio_grabacion = t_actual
                 eventos_grabados = [(0.0, clave_actual, modo_acordes)]
-                print(" Reiniciando grabación de nuevo Loop...")
+                print("Reiniciando grabación de nuevo Loop...")
 
         elif key in [ord('c'), ord('C')]:
             estado_loop = 'IDLE'
             eventos_grabados = []
             duracion_loop = 0
             detener_audio_loop()
-            print(" Loop borrado.")
+            print("Loop borrado.")
 
         elif key in [ord('m'), ord('M')]:
             modo_acordes = not modo_acordes

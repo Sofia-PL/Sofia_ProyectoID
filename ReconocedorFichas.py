@@ -162,7 +162,7 @@ def main():
     if WINSOUND_DISPONIBLE:
         pregenerar_sonidos()
         
-    camara = cv2.VideoCapture(2)
+    camara = cv2.VideoCapture(1)
     
     if not camara.isOpened():
         print("Error: No es posible abrir la cámara web.")
