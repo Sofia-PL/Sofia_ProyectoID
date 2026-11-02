@@ -35,11 +35,11 @@ def procesar_archivo_grabado(archivo_mp4, prefijo_salida, tiempos_dict, duracion
     y la duración especificada.
     """
     if not os.path.exists(archivo_mp4):
-        print(f"⚠️ No se encontró el archivo '{archivo_mp4}'. Revisa el nombre.")
+        print(f"No se encontró el archivo '{archivo_mp4}'. Revisa el nombre.")
         return
 
     archivo_wav_temp = f"temp_extraido_{prefijo_salida}.wav"
-    print(f"\n🎬 Extrayendo audio de '{archivo_mp4}'...")
+    print(f"\n Extrayendo audio de '{archivo_mp4}'...")
     
     if MOVIEPY_OK:
         audio = AudioFileClip(archivo_mp4)
@@ -55,7 +55,7 @@ def procesar_archivo_grabado(archivo_mp4, prefijo_salida, tiempos_dict, duracion
 
     muestras_por_nota = int(SAMPLE_RATE * duracion_deseada)
     
-    print(f"✂️ Recortando muestras con prefijo '{prefijo_salida}' (Duración: {duracion_deseada}s)...")
+    print(f" Recortando muestras con prefijo '{prefijo_salida}' (Duración: {duracion_deseada}s)...")
     for nombre_etiqueta, t_inicio in tiempos_dict.items():
         idx_inicio = int(t_inicio * SAMPLE_RATE)
         idx_fin = idx_inicio + muestras_por_nota
@@ -71,7 +71,7 @@ def procesar_archivo_grabado(archivo_mp4, prefijo_salida, tiempos_dict, duracion
         
         nombre_salida = f"{prefijo_salida}_{nombre_etiqueta}.wav"
         wav.write(nombre_salida, SAMPLE_RATE, tramo_suave)
-        print(f"  ✅ Guardada muestra: {nombre_salida} ({duracion_deseada}s)")
+        print(f"   Guardada muestra: {nombre_salida} ({duracion_deseada}s)")
 
     if os.path.exists(archivo_wav_temp):
         os.remove(archivo_wav_temp)
@@ -107,7 +107,7 @@ if __name__ == '__main__':
                     "II_Rem":     5.6,
                     "III_Mim":    9.2,
                     "IV_FaM":     12.2,
-                    "V_SolM7":    16.0,
+                    "V_SolM":    16.0,
                     "VI_Lam":     19.5,
                     "VII_Sidism": 22.7
                 }
@@ -123,7 +123,7 @@ if __name__ == '__main__':
                     "II_Rem":     6.0,
                     "III_Mim":    11.5,
                     "IV_FaM":     16.4,
-                    "V_SolM7":    20.7,
+                    "V_SolM":    20.7,
                     "VI_Lam":     24.8,
                     "VII_Sidism": 29.4
                 }
