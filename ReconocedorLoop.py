@@ -5,7 +5,7 @@ import math
 import time
 import os
 
-# Carga de libreria de audio multicanal
+# Carga de librería de audio multicanal
 try:
     import pygame
     PYGAME_DISPONIBLE = True
@@ -19,7 +19,7 @@ except ImportError:
     WINSOUND_DISPONIBLE = False
 
 # ==========================================
-# 1. DEFINICION DE FRECUENCIAS Y MAPEOS
+# 1. DEFINICIÓN DE FRECUENCIAS Y MAPEOS (ESTADO FUNDAMENTAL)
 # ==========================================
 NOTAS_SOLO = {
     "DO":  [261.63],
@@ -31,14 +31,15 @@ NOTAS_SOLO = {
     "SI":  [493.88]
 }
 
+# Acordes en Estado Fundamental (Triadas directas)
 ACORDES = {
-    "I (Do Mayor)":     [261.63, 329.63, 392.00],   # C - E - G
-    "II (Re menor)":    [293.66, 349.23, 440.00],   # D - F - A
-    "III (Mi menor)":   [329.63, 392.00, 493.88],   # E - G - B
-    "IV (Fa Mayor)":    [349.23, 440.00, 523.25],   # F - A - C5
-    "V (Sol Mayor)":    [392.00, 493.88, 587.33],   # G - B - D5
-    "VI (La menor)":    [440.00, 523.25, 659.25],   # A - C5 - E5
-    "VII (Si dism)":    [493.88, 587.33, 698.46]    # B - D5 - F5
+    "I (Do Mayor)":     [261.63, 329.63, 392.00],   # C4 - E4 - G4
+    "II (Re menor)":    [293.66, 349.23, 440.00],   # D4 - F4 - A4
+    "III (Mi menor)":   [329.63, 392.00, 493.88],   # E4 - G4 - B4
+    "IV (Fa Mayor)":    [349.23, 440.00, 523.25],   # F4 - A4 - C5
+    "V (Sol Mayor)":    [392.00, 493.88, 587.33],   # G4 - B4 - D5
+    "VI (La menor)":    [440.00, 523.25, 659.25],   # A4 - C5 - E5
+    "VII (Si dim)":     [493.88, 587.33, 698.46]    # B4 - D5 - F5
 }
 
 MAPEO_CLAVE_ACORDE_ARCHIVO = {
@@ -48,7 +49,17 @@ MAPEO_CLAVE_ACORDE_ARCHIVO = {
     "IV (Fa Mayor)":    "IV_FaM",
     "V (Sol Mayor)":    "V_SolM",
     "VI (La menor)":    "VI_Lam",
-    "VII (Si dism)":    "VII_Sidism"
+    "VII (Si dim)":     "VII_Sidim"
+}
+
+ETIQUETA_CORTA_ACORDE = {
+    "I (Do Mayor)":     "DoM",
+    "II (Re menor)":    "Rem",
+    "III (Mi menor)":   "Mim",
+    "IV (Fa Mayor)":    "FaM",
+    "V (Sol Mayor)":    "SolM",
+    "VI (La menor)":    "Lam",
+    "VII (Si dim)":     "Sidim"
 }
 
 NOTA_A_TAG_ACORDE = {
@@ -58,7 +69,7 @@ NOTA_A_TAG_ACORDE = {
     "FA":  "IV_FaM",
     "SOL": "V_SolM",
     "LA":  "VI_Lam",
-    "SI":  "VII_Sidism"
+    "SI":  "VII_Sidim"
 }
 
 # Diccionarios de rutas WAV
@@ -77,6 +88,7 @@ SONIDOS_PYGAME = {
     "ORQUESTA":     {"NOTAS": {}, "ACORDES": {}}
 }
 
+SONIDO_METRONOMO = None
 canal_loop = None
 canal_vivo = None
 
@@ -87,14 +99,11 @@ def actualizar_brillo_trackbar(val):
     incremento_brillo = val
 
 def ajustar_brillo_frame(img, ajuste):
-    """Ajusta la luminosidad modificando el canal V (Value) en espacio HSV."""
     offset = ajuste - 100
     if offset == 0:
         return img
-    
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     h, s, v = cv2.split(hsv)
-    
     if offset > 0:
         limite = 255 - offset
         v[v > limite] = 255
@@ -103,12 +112,17 @@ def ajustar_brillo_frame(img, ajuste):
         abs_offset = abs(offset)
         v[v < abs_offset] = 0
         v[v >= abs_offset] -= abs_offset
-        
     hsv = cv2.merge((h, s, v))
     return cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
+def mostrar_imagen_segura(titulo, img):
+    try:
+        cv2.imshow(titulo, img)
+    except Exception:
+        pass
+
 # ==========================================
-# 2. SINTESIS Y CARGA DE AUDIOS (1.0 seg)
+# 2. SÍNTESIS Y CARGA DE AUDIOS
 # ==========================================
 def generar_bytes_wav(lista_frecuencias, duracion=1.0, sample_rate=44100, estilo="SYNTH"):
     num_samples = int(sample_rate * duracion)
@@ -122,7 +136,15 @@ def generar_bytes_wav(lista_frecuencias, duracion=1.0, sample_rate=44100, estilo
     samples = bytearray()
     num_notas = len(lista_frecuencias)
     
-    if estilo == "PIANO":
+    if estilo == "METRONOMO":
+        freq = lista_frecuencias[0] if isinstance(lista_frecuencias, list) else lista_frecuencias
+        for i in range(num_samples):
+            t = i / sample_rate
+            env = 1.0 - (i / num_samples)
+            val = int(math.sin(2 * math.pi * freq * t) * env * 24000)
+            val = max(-32768, min(32767, val))
+            samples.extend(struct.pack('<h', val))
+    elif estilo == "PIANO":
         attack = int(sample_rate * 0.005)
         for i in range(num_samples):
             t = i / sample_rate
@@ -139,7 +161,6 @@ def generar_bytes_wav(lista_frecuencias, duracion=1.0, sample_rate=44100, estilo
             val = int(mezcla_onda * envolvente * 16000)
             val = max(-32768, min(32767, val))
             samples.extend(struct.pack('<h', val))
-
     elif estilo == "ORQUESTA":
         attack = int(sample_rate * 0.12)
         release = int(sample_rate * 0.12)
@@ -163,7 +184,6 @@ def generar_bytes_wav(lista_frecuencias, duracion=1.0, sample_rate=44100, estilo
             val = int(mezcla_onda * envolvente * 16000)
             val = max(-32768, min(32767, val))
             samples.extend(struct.pack('<h', val))
-
     else:
         attack = int(sample_rate * 0.08)
         release = int(sample_rate * 0.08)
@@ -213,7 +233,7 @@ def registrar_audio(inst, tipo, clave, ruta, freqs_fallback=None):
                     SONIDOS_PYGAME[inst][tipo][clave] = SONIDOS_PYGAME["SINTETIZADOR"][tipo].get(clave)
 
 def pregenerar_sonidos():
-    global PYGAME_DISPONIBLE, canal_loop, canal_vivo
+    global PYGAME_DISPONIBLE, canal_loop, canal_vivo, SONIDO_METRONOMO
     
     if PYGAME_DISPONIBLE:
         try:
@@ -224,10 +244,19 @@ def pregenerar_sonidos():
             canal_vivo = pygame.mixer.Channel(1)
             print("Audio Pygame multicanal inicializado correctamente.")
         except Exception as e:
-            print(f"Uso de audio estandar: {e}")
+            print(f"Uso de audio estándar: {e}")
             PYGAME_DISPONIBLE = False
 
-    # 1. Sintetizador
+    data_metro = generar_bytes_wav([1000.0], duracion=0.05, estilo="METRONOMO")
+    ruta_metro = "temp_metronomo_click.wav"
+    with open(ruta_metro, "wb") as f:
+        f.write(data_metro)
+    if PYGAME_DISPONIBLE:
+        try:
+            SONIDO_METRONOMO = pygame.mixer.Sound(ruta_metro)
+        except Exception:
+            SONIDO_METRONOMO = None
+
     for nombre, freqs in NOTAS_SOLO.items():
         data = generar_bytes_wav(freqs, duracion=1.0, estilo="SYNTH")
         ruta = f"temp_synth_nota_{nombre}.wav"
@@ -247,11 +276,9 @@ def pregenerar_sonidos():
         if PYGAME_DISPONIBLE:
             SONIDOS_PYGAME["SINTETIZADOR"]["ACORDES"][nombre] = pygame.mixer.Sound(ruta)
 
-    # 2. Cello
     for nombre, freqs in NOTAS_SOLO.items():
         registrar_audio("VIOLONCHELO", "NOTAS", nombre, f"cello_{nombre}.wav", freqs_fallback=freqs)
 
-    # 3. Piano
     for nombre, freqs in NOTAS_SOLO.items():
         registrar_audio("PIANO", "NOTAS", nombre, f"piano_nota_{nombre}.wav", freqs_fallback=freqs)
         
@@ -259,7 +286,6 @@ def pregenerar_sonidos():
         tag = MAPEO_CLAVE_ACORDE_ARCHIVO[nombre]
         registrar_audio("PIANO", "ACORDES", nombre, f"piano_acorde_{tag}.wav", freqs_fallback=freqs)
 
-    # 4. Orquesta
     for nombre, freqs in ACORDES.items():
         tag = MAPEO_CLAVE_ACORDE_ARCHIVO[nombre]
         registrar_audio("ORQUESTA", "ACORDES", nombre, f"orquesta_acorde_{tag}.wav", freqs_fallback=freqs)
@@ -267,8 +293,20 @@ def pregenerar_sonidos():
     print("Sintetizador y muestras de instrumentos inicializados correctamente.")
 
 # ==========================================
-# 3. REPRODUCCION MULTICANAL
+# 3. REPRODUCCIÓN MULTICANAL
 # ==========================================
+def sonar_click_metronomo():
+    if PYGAME_DISPONIBLE and SONIDO_METRONOMO:
+        try:
+            SONIDO_METRONOMO.play()
+        except Exception:
+            pass
+    elif WINSOUND_DISPONIBLE:
+        try:
+            winsound.Beep(1000, 40)
+        except Exception:
+            pass
+
 def obtener_recurso_audio(clave_actual, modo_acordes, instrumento):
     if clave_actual == "SILENCIO":
         return None
@@ -327,21 +365,24 @@ def detener_audio_loop():
         canal_loop.stop()
 
 # ==========================================
-# 4. RANGOS DE COLOR HSV Y VISIBILIDAD
+# 4. RANGOS DE COLOR HSV Y VISIBILIDAD RECALIBRADOS
 # ==========================================
-rosa_bajo = np.array([140, 80, 80])
-rosa_alto = np.array([170, 255, 255])
+# Rosa (Magenta): Hue 138 - 168
+rosa_bajo = np.array([138, 70, 70])
+rosa_alto = np.array([168, 255, 255])
 
-azul_bajo = np.array([95, 80, 80])
+# Azul: Hue 95 - 130
+azul_bajo = np.array([95, 70, 70])
 azul_alto = np.array([130, 255, 255])
 
+# Verde: Hue 35 - 85
 verde_bajo = np.array([35, 70, 70])
 verde_alto = np.array([85, 255, 255])
 
-# Rojo Intenso (Doble rango HSV)
-rojo_bajo1 = np.array([0, 100, 80])
-rojo_alto1 = np.array([10, 255, 255])
-rojo_bajo2 = np.array([165, 100, 80])
+# Rojo Intenso: Hue 0-8 y 172-180 (Doble rango para alta sensibilidad)
+rojo_bajo1 = np.array([0, 70, 70])
+rojo_alto1 = np.array([8, 255, 255])
+rojo_bajo2 = np.array([172, 70, 70])
 rojo_alto2 = np.array([180, 255, 255])
 
 UMBRAL_AREA_MINIMA = 3000
@@ -367,19 +408,35 @@ def evaluar_visibilidad(hsv_frame, bajo, alto, bajo2=None, alto2=None):
     return visible, area_maxima, contorno_max
 
 # ==========================================
-# 5. GENERACION DE LAS DOS TABLATURAS SEPARADAS
+# 5. BÚSQUEDA FLEXIBLE DE FOTOS Y DIBUJADO DE PIANO
 # ==========================================
 def buscar_imagen_tablatura(tag_nombre):
-    """
-    Busca si existe la foto de la tablatura del piano (tab_I_DoM.png, tab_DoM.jpg, etc.).
-    """
     extensiones = [".png", ".jpg", ".jpeg", ".PNG", ".JPG", ".JPEG"]
-    nombres_posibles = [f"tab_{tag_nombre}"]
+    
+    posibles_bases = [
+        f"tab_{tag_nombre}",
+        f"tab_{tag_nombre.lower()}",
+        f"tab_{tag_nombre.upper()}",
+        f"{tag_nombre}",
+        f"{tag_nombre.lower()}"
+    ]
+    
     if "_" in tag_nombre:
-        subtag = tag_nombre.split("_")[1]
-        nombres_posibles.append(f"tab_{subtag}")
+        subtag = tag_nombre.split("_")[-1]
+        posibles_bases.extend([
+            f"tab_{subtag}",
+            f"tab_{subtag.lower()}",
+            f"tab_{subtag.upper()}",
+            f"tab_VII_{subtag}",
+            f"tab_VII_{subtag.lower()}"
+        ])
+        if "sidim" in subtag.lower() or "sidism" in subtag.lower():
+            posibles_bases.extend([
+                "tab_Sidim", "tab_sidim", "Sidim", "sidim",
+                "tab_VII_Sidim", "tab_VII_sidim"
+            ])
         
-    for base in nombres_posibles:
+    for base in posibles_bases:
         for ext in extensiones:
             nombre_archivo = f"{base}{ext}"
             if os.path.exists(nombre_archivo):
@@ -388,18 +445,34 @@ def buscar_imagen_tablatura(tag_nombre):
                     return img
     return None
 
-def generar_tarjeta_fichas(clave, modo_acordes, rosa_vis, azul_vis, verde_vis, roja_vis):
-    """
-    Genera la tarjeta para la TABLATURA DE FICHAS/GESTOS (220x160 px).
-    """
+def dibujar_piano_esquematico(ancho=280, alto=130):
+    img = np.full((alto, ancho, 3), 255, dtype=np.uint8)
+    cv2.rectangle(img, (0, 0), (ancho - 1, alto - 1), (0, 0, 0), 2)
+    
+    num_teclas_blancas = 7
+    w_tb = ancho // num_teclas_blancas
+    for i in range(num_teclas_blancas):
+        x = i * w_tb
+        cv2.rectangle(img, (x, 0), (x + w_tb, alto - 1), (0, 0, 0), 1)
+        
+    h_tn = int(alto * 0.6)
+    w_tn = int(w_tb * 0.6)
+    indices_negras = [0, 1, 3, 4, 5]
+    for idx in indices_negras:
+        x_n = (idx + 1) * w_tb - (w_tn // 2)
+        cv2.rectangle(img, (x_n, 0), (x_n + w_tn, h_tn), (0, 0, 0), -1)
+        
+    return img
+
+def generar_tarjeta_fichas(clave, modo_acordes, rosa_vis, azul_vis, verde_vis, roja_vis, beat_num=1, sub_beat=1, t_rel=0.0):
     tarjeta = np.zeros((160, 220, 3), dtype=np.uint8)
     cv2.rectangle(tarjeta, (0, 0), (220, 160), (255, 255, 255), 2)
     
     fichas_coords = [
-        ("RS", rosa_vis, (30, 45), (255, 0, 255)),
-        ("A", azul_vis, (80, 45), (255, 0, 0)),
-        ("V", verde_vis, (130, 45), (0, 255, 0)),
-        ("RJ", roja_vis, (180, 45), (0, 0, 255))
+        ("RS", rosa_vis, (30, 40), (255, 0, 255)),
+        ("A", azul_vis, (80, 40), (255, 0, 0)),
+        ("V", verde_vis, (130, 40), (0, 255, 0)),
+        ("RJ", roja_vis, (180, 40), (0, 0, 255))
     ]
     
     for nombre_f, visible, (cx, cy), color_bgr in fichas_coords:
@@ -411,24 +484,24 @@ def generar_tarjeta_fichas(clave, modo_acordes, rosa_vis, azul_vis, verde_vis, r
             cv2.line(tarjeta, (cx - 10, cy - 10), (cx + 10, cy + 10), (0, 0, 255), 2)
             cv2.line(tarjeta, (cx - 10, cy + 10), (cx + 10, cy - 10), (0, 0, 255), 2)
             
-    cv2.rectangle(tarjeta, (10, 95), (210, 145), (30, 30, 30), -1)
-    cv2.rectangle(tarjeta, (10, 95), (210, 145), (180, 180, 180), 1)
+    cv2.rectangle(tarjeta, (10, 85), (210, 150), (30, 30, 30), -1)
+    cv2.rectangle(tarjeta, (10, 85), (210, 150), (180, 180, 180), 1)
     
-    texto = clave if modo_acordes else f"NOTA: {clave}"
-    cv2.putText(tarjeta, texto, (15, 126), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (255, 255, 255), 1)
+    lbl_corta = ETIQUETA_CORTA_ACORDE.get(clave, clave)
+    texto = lbl_corta if modo_acordes else f"NOTA: {clave}"
+    cv2.putText(tarjeta, texto, (15, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (255, 255, 255), 1)
+    
+    txt_pulso = f"PULSO {beat_num}.{sub_beat}" if sub_beat > 1 else f"PULSO {beat_num}"
+    cv2.putText(tarjeta, f"{txt_pulso} | {t_rel:.1f}s", (15, 136), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 255, 255), 1)
     return tarjeta
 
-def generar_tarjeta_piano(clave, modo_acordes):
-    """
-    Genera la tarjeta para la TABLATURA DE PIANO sobre FONDO BLANCO (300x210 px).
-    Muestra el dibujo/foto del piano sin cortarse.
-    """
+def generar_tarjeta_piano(clave, modo_acordes, beat_num=1, sub_beat=1, t_rel=0.0):
     tarjeta = np.full((210, 300, 3), 255, dtype=np.uint8)
     cv2.rectangle(tarjeta, (0, 0), (300, 210), (0, 0, 0), 2)
     
     if modo_acordes:
         tag_busqueda = MAPEO_CLAVE_ACORDE_ARCHIVO.get(clave, "I_DoM")
-        texto_etiqueta = clave
+        texto_etiqueta = ETIQUETA_CORTA_ACORDE.get(clave, clave)
     else:
         tag_busqueda = NOTA_A_TAG_ACORDE.get(clave, "I_DoM")
         texto_etiqueta = f"NOTA: {clave}"
@@ -437,7 +510,7 @@ def generar_tarjeta_piano(clave, modo_acordes):
     
     if img_piano is not None:
         h, w = img_piano.shape[:2]
-        target_w, target_h = 280, 140
+        target_w, target_h = 280, 130
         scale = min(target_w / w, target_h / h)
         nw, nh = int(w * scale), int(h * scale)
         img_resized = cv2.resize(img_piano, (nw, nh))
@@ -445,30 +518,150 @@ def generar_tarjeta_piano(clave, modo_acordes):
         off_x = 10 + (target_w - nw) // 2
         off_y = 15 + (target_h - nh) // 2
         tarjeta[off_y:off_y+nh, off_x:off_x+nw] = img_resized
-        cv2.rectangle(tarjeta, (10, 15), (290, 155), (180, 180, 180), 1)
+        cv2.rectangle(tarjeta, (10, 15), (290, 150), (180, 180, 180), 1)
     else:
-        cv2.rectangle(tarjeta, (10, 15), (290, 155), (245, 245, 245), -1)
-        cv2.rectangle(tarjeta, (10, 15), (290, 155), (180, 180, 180), 1)
-        cv2.putText(tarjeta, "(Sin foto piano)", (75, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (120, 120, 120), 1)
+        piano_synth = dibujar_piano_esquematico(280, 130)
+        tarjeta[15:145, 10:290] = piano_synth
+        cv2.rectangle(tarjeta, (10, 15), (290, 150), (0, 0, 0), 1)
 
-    cv2.rectangle(tarjeta, (10, 165), (290, 198), (30, 30, 30), -1)
-    cv2.putText(tarjeta, texto_etiqueta, (15, 188), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 255), 1)
+    cv2.rectangle(tarjeta, (10, 158), (290, 198), (30, 30, 30), -1)
+    str_pulso = f"PULSO {beat_num}.{sub_beat}" if sub_beat > 1 else f"PULSO {beat_num}"
+    cv2.putText(tarjeta, f"{texto_etiqueta} | {str_pulso}", (15, 183), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 255, 255), 1)
 
     return tarjeta
 
-def exportar_tablaturas(lista_tarjetas_fichas, lista_tarjetas_piano):
+# ==========================================
+# 6. PENTAGRAMA RÍTMICO (ESTADO FUNDAMENTAL & MAPEO GEOMÉTRICO EXACTO)
+# ==========================================
+def generar_partitura_pentagrama_ritmica(eventos_partitura, nombre_salida="partitura_ritmica.png"):
     """
-    Genera y guarda dos archivos de tablatura independientes:
-    1. tablatura_fichas.png (Tablatura de gestos/fichas)
-    2. tablatura_piano.png (Tablatura de dibujos de piano sobre fondo blanco)
+    Genera un pentagrama musical profesional en Estado Fundamental.
+    Mapeo de alturas (Offsets respecto a la 5ª línea superior FA5 = 0px, separación líneas 12px):
+      FA5 = 0px (5ª línea)
+      MI5 = +6px (4º espacio)
+      RE5 = +12px (4ª línea)
+      DO5 = +18px (3er espacio)
+      SI4 = +24px (3ª línea central)
+      LA4 = +30px (2º espacio)
+      SOL4 = +36px (2ª línea)
+      FA4 = +42px (1er espacio)
+      MI4 = +48px (1ª línea inferior)
+      RE4 = +54px (Espacio bajo 1ª línea)
+      DO4 = +60px (Línea adicional inferior)
+    SIN TEXTOS DE PULSO (P1.2, P11.2) Y SIN ETIQUETAS DE INVERSIÓN (SIN '1stInv').
     """
+    if len(eventos_partitura) == 0:
+        print("No se registraron notas para generar el pentagrama.")
+        return
+
+    ancho_lienzo = 1000
+    alto_sistema = 220
+    num_eventos = len(eventos_partitura)
+    num_sistemas = math.ceil(max(1, num_eventos) / 8)
+
+    alto_total = 110 + num_sistemas * alto_sistema
+    img_partitura = np.full((alto_total, ancho_lienzo, 3), 255, dtype=np.uint8)
+    
+    cv2.rectangle(img_partitura, (0, 0), (ancho_lienzo - 1, 65), (0, 0, 0), 2)
+    cv2.putText(img_partitura, "PARTITURA MUSICAL EN PENTAGRAMA", (25, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 0), 2)
+
+    MAPEO_OFFSET_NOTAS = {
+        "FA5": 0,   "MI5": 6,   "RE5": 12,  "DO5": 18,
+        "SI4": 24,  "LA4": 30,  "SOL4": 36, "FA4": 42,
+        "MI4": 48,  "RE4": 54,  "DO4": 60,
+        "DO": 60,   "RE": 54,   "MI": 48,   "FA": 42,
+        "SOL": 36,  "LA": 30,   "SI": 24
+    }
+
+    # ACORDES EN ESTADO FUNDAMENTAL (TRIADAS DIRECTAS)
+    MAPEO_ACORDE_FUNDAMENTAL = {
+        "I (Do Mayor)":     ["DO4", "MI4", "SOL4"],  # C4 - E4 - G4
+        "II (Re menor)":    ["RE4", "FA4", "LA4"],   # D4 - F4 - A4
+        "III (Mi menor)":   ["MI4", "SOL4", "SI4"],  # E4 - G4 - B4
+        "IV (Fa Mayor)":    ["FA4", "LA4", "DO5"],   # F4 - A4 - C5
+        "V (Sol Mayor)":    ["SOL4", "SI4", "RE5"],  # G4 - B4 - D5
+        "VI (La menor)":    ["LA4", "DO5", "MI5"],   # A4 - C5 - E5
+        "VII (Si dim)":     ["SI4", "RE5", "FA5"]    # B4 - D5 - F5
+    }
+
+    idx_ev = 0
+    for s in range(num_sistemas):
+        y_base_pentagrama = 140 + s * alto_sistema
+        
+        # 5 líneas del pentagrama (0, 12, 24, 36, 48 px respecto a y_base)
+        for l in range(5):
+            yl = y_base_pentagrama + l * 12
+            cv2.line(img_partitura, (60, yl), (ancho_lienzo - 40, yl), (0, 0, 0), 1)
+            
+        # Marcador SOL en el margen izquierdo
+        cv2.putText(img_partitura, "SOL", (68, y_base_pentagrama + 32), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+        cv2.line(img_partitura, (115, y_base_pentagrama), (115, y_base_pentagrama + 48), (0, 0, 0), 2)
+
+        paso_x = (ancho_lienzo - 210) // 8
+        for pos_sist in range(8):
+            if idx_ev >= len(eventos_partitura):
+                break
+                
+            clave, modo_ac, beat_n, sub_b, dur_s = eventos_partitura[idx_ev]
+            x_nota = 150 + pos_sist * paso_x
+            
+            if modo_ac:
+                notas_list = MAPEO_ACORDE_FUNDAMENTAL.get(clave, ["DO4", "MI4", "SOL4"])
+                lbl_texto = ETIQUETA_CORTA_ACORDE.get(clave, clave)
+            else:
+                notas_list = [f"{clave}4" if f"{clave}4" in MAPEO_OFFSET_NOTAS else clave]
+                lbl_texto = clave
+
+            # FIGURAS MUSICALES SEGÚN DURACIÓN
+            es_redonda = (dur_s >= 3.0)
+            es_blanca = (1.5 <= dur_s < 3.0)
+            es_negra = (0.75 <= dur_s < 1.5)
+            es_corchea = (dur_s < 0.75)
+
+            cabeza_llena = es_negra or es_corchea
+            tiene_plica = not es_redonda
+
+            y_min_acorde = 999
+            for n_nombre in notas_list:
+                off_y = MAPEO_OFFSET_NOTAS.get(n_nombre, 36)
+                yn = y_base_pentagrama + off_y
+                y_min_acorde = min(y_min_acorde, yn)
+                
+                # Línea adicional para DO4 (+60px)
+                if off_y >= 60:
+                    cv2.line(img_partitura, (x_nota - 9, y_base_pentagrama + 60), (x_nota + 9, y_base_pentagrama + 60), (0, 0, 0), 1)
+                    
+                if cabeza_llena:
+                    cv2.ellipse(img_partitura, (x_nota, yn), (6, 4), 30, 0, 360, (0, 0, 0), -1)
+                else:
+                    cv2.ellipse(img_partitura, (x_nota, yn), (6, 4), 30, 0, 360, (0, 0, 0), 2)
+
+            if tiene_plica:
+                x_plica = x_nota + 5
+                y_top_plica = y_min_acorde - 28
+                cv2.line(img_partitura, (x_plica, y_min_acorde), (x_plica, y_top_plica), (0, 0, 0), 2)
+                
+                if es_corchea:
+                    cv2.line(img_partitura, (x_plica, y_top_plica), (x_plica + 8, y_top_plica + 10), (0, 0, 0), 2)
+            
+            # Etiqueta limpia del nombre del acorde / nota
+            cv2.putText(img_partitura, lbl_texto, (x_nota - 14, y_base_pentagrama + 72), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 0, 0), 1)
+
+            idx_ev += 1
+
+        cv2.line(img_partitura, (ancho_lienzo - 40, y_base_pentagrama), (ancho_lienzo - 40, y_base_pentagrama + 48), (0, 0, 0), 2)
+
+    cv2.imwrite(nombre_salida, img_partitura)
+    mostrar_imagen_segura("Partitura Pentagrama", img_partitura)
+    print(f"Partitura en pentagrama exportada con éxito en: {nombre_salida}")
+
+def exportar_tablaturas(lista_tarjetas_fichas, lista_tarjetas_piano, eventos_partitura):
     if len(lista_tarjetas_fichas) == 0:
-        print("No se grabaron eventos para exportar tablaturas.")
+        print("No se registraron notas para exportar tablaturas.")
         return
         
     columnas = 4
     
-    # 1. TABLATURA DE FICHAS
     filas_f = math.ceil(len(lista_tarjetas_fichas) / columnas)
     cards_f = list(lista_tarjetas_fichas)
     blank_f = np.zeros((160, 220, 3), dtype=np.uint8)
@@ -482,10 +675,8 @@ def exportar_tablaturas(lista_tarjetas_fichas, lista_tarjetas_piano):
     cv2.putText(enc_f, "TABLATURA DE GESTOS / FICHAS DE COLOR", (20, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
     tab_fichas_final = np.vstack([enc_f, tab_fichas_body])
     cv2.imwrite("tablatura_fichas.png", tab_fichas_final)
-    cv2.imshow("Tablatura de Fichas", tab_fichas_final)
-    print("Tablatura de fichas exportada con exito en: tablatura_fichas.png")
+    mostrar_imagen_segura("Tablatura de Fichas", tab_fichas_final)
 
-    # 2. TABLATURA DE PIANO (SOBRE FONDO BLANCO)
     filas_p = math.ceil(len(lista_tarjetas_piano) / columnas)
     cards_p = list(lista_tarjetas_piano)
     blank_p = np.full((210, 300, 3), 255, dtype=np.uint8)
@@ -496,15 +687,16 @@ def exportar_tablaturas(lista_tarjetas_fichas, lista_tarjetas_piano):
     
     ancho_p = tab_piano_body.shape[1]
     enc_p = np.full((65, ancho_p, 3), 255, dtype=np.uint8)
-    cv2.rectangle(enc_p, (0, 0), (ancho_p, 65), (0, 0, 0), 2)
+    cv2.rectangle(enc_p, (0, 0), (ancho_p - 1, 64), (0, 0, 0), 2)
     cv2.putText(enc_p, "TABLATURA DE DIBUJOS DE PIANO", (20, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 0), 2)
     tab_piano_final = np.vstack([enc_p, tab_piano_body])
     cv2.imwrite("tablatura_piano.png", tab_piano_final)
-    cv2.imshow("Tablatura de Piano (Fondo Blanco)", tab_piano_final)
-    print("Tablatura de piano exportada con exito en: tablatura_piano.png")
+    mostrar_imagen_segura("Tablatura de Piano (Fondo Blanco)", tab_piano_final)
+
+    generar_partitura_pentagrama_ritmica(eventos_partitura)
 
 # ==========================================
-# 6. BUCLE PRINCIPAL (MAIN)
+# 7. BUCLE PRINCIPAL (MAIN)
 # ==========================================
 def main():
     if WINSOUND_DISPONIBLE or PYGAME_DISPONIBLE:
@@ -513,12 +705,15 @@ def main():
     camara = cv2.VideoCapture(1)
     
     if not camara.isOpened():
-        print("Error: No es posible abrir la camara web.")
+        print("Error: No es posible abrir la cámara web.")
         return
 
     nombre_ventana = "Gesture Synth OpenCV + Loopstation"
-    cv2.namedWindow(nombre_ventana)
-    cv2.createTrackbar("Ajuste Brillo", nombre_ventana, 100, 200, actualizar_brillo_trackbar)
+    try:
+        cv2.namedWindow(nombre_ventana)
+        cv2.createTrackbar("Ajuste Brillo", nombre_ventana, 100, 200, actualizar_brillo_trackbar)
+    except Exception:
+        pass
 
     insts_acordes = ["SINTETIZADOR", "PIANO", "ORQUESTA"]
     insts_notas = ["SINTETIZADOR", "PIANO", "VIOLONCHELO"]
@@ -530,6 +725,15 @@ def main():
 
     clave_actual = "SILENCIO"
     clave_anterior = None
+    t_inicio_nota_actual = 0.0
+
+    # Metrónomo a 60 BPM (1 pulso por segundo)
+    metronomo_activo = False
+    bpm = 60
+    intervalo_beat = 60.0 / bpm
+    t_ultimo_beat = time.time()
+    beat_contador = 1
+    sub_beat_contador = 1
 
     # Loopstation
     estado_loop = 'IDLE'
@@ -539,27 +743,34 @@ def main():
     tiempo_inicio_reproduccion = 0
     indice_evento_loop = -1
 
-    # Grabacion de Tablaturas
+    # Grabación de Tablaturas y Partitura
     grabando_tablatura = False
+    t_inicio_grabacion_part = 0.0
     lista_cards_fichas = []
     lista_cards_piano = []
+    eventos_partitura_ritmica = []
 
     while True:
         ret, frame = camara.read()
         if not ret:
             break
             
-        # Volteo horizontal para efecto espejo natural
         frame = cv2.flip(frame, 1)
         t_actual = time.time()
+
+        destello_metronomo = False
+        if metronomo_activo:
+            if t_actual - t_ultimo_beat >= intervalo_beat:
+                t_ultimo_beat = t_actual
+                beat_contador += 1
+                sub_beat_contador = 1
+                destello_metronomo = True
+                sonar_click_metronomo()
         
-        # 1. Ajuste de brillo
         frame_ajustado = ajustar_brillo_frame(frame, incremento_brillo)
-        
         frame_suavizado = cv2.blur(frame_ajustado, (5, 5))
         hsv = cv2.cvtColor(frame_suavizado, cv2.COLOR_BGR2HSV)
         
-        # 2. Visibilidad HSV (Con Rojo Intenso de Doble Rango)
         rosa_visible, _, c_rosa = evaluar_visibilidad(hsv, rosa_bajo, rosa_alto)
         azul_visible, _, c_azul = evaluar_visibilidad(hsv, azul_bajo, azul_alto)
         verde_visible, _, c_verde = evaluar_visibilidad(hsv, verde_bajo, verde_alto)
@@ -570,13 +781,12 @@ def main():
         verde_tapado = not verde_visible
         rojo_tapado = not roja_visible
         
-        # 3. MAPEO ESTRICTO CON COMPROBACION BIDIRECCIONAL Y CONTROL DE ERRORES
         if rosa_visible and azul_visible and verde_visible and roja_visible:
             clave_actual = "I (Do Mayor)" if modo_acordes else "DO"
         elif rosa_tapado and azul_tapado and verde_visible and roja_visible:
             clave_actual = "VI (La menor)" if modo_acordes else "LA"
         elif rosa_tapado and verde_tapado and azul_visible and roja_visible:
-            clave_actual = "VII (Si dism)" if modo_acordes else "SI"
+            clave_actual = "VII (Si dim)" if modo_acordes else "SI"
         elif rosa_tapado and azul_visible and verde_visible and roja_visible:
             clave_actual = "II (Re menor)" if modo_acordes else "RE"
         elif azul_tapado and rosa_visible and verde_visible and roja_visible:
@@ -586,11 +796,15 @@ def main():
         elif rojo_tapado and rosa_visible and azul_visible and verde_visible:
             clave_actual = "V (Sol Mayor)" if modo_acordes else "SOL"
         else:
-            # Estado no valido / Oscuridad / Mas de 2 fichas tapadas -> SILENCIO
             clave_actual = "SILENCIO"
 
-        # 4. Reproduccion en vivo y grabacion de eventos
         if clave_actual != clave_anterior:
+            if grabando_tablatura and clave_anterior is not None and clave_anterior != "SILENCIO":
+                dur_sostenida = max(0.4, t_actual - t_inicio_nota_actual)
+                eventos_partitura_ritmica.append((clave_anterior, modo_acordes, beat_contador, sub_beat_contador, dur_sostenida))
+                sub_beat_contador += 1
+
+            t_inicio_nota_actual = t_actual
             reproducir_sonido_vivo(clave_actual, modo_acordes, instrumento_actual)
             
             if estado_loop == 'RECORDING':
@@ -598,14 +812,14 @@ def main():
                 eventos_grabados.append((t_rel, clave_actual, modo_acordes, instrumento_actual))
                 
             if grabando_tablatura and clave_actual != "SILENCIO":
-                card_f = generar_tarjeta_fichas(clave_actual, modo_acordes, rosa_visible, azul_visible, verde_visible, roja_visible)
-                card_p = generar_tarjeta_piano(clave_actual, modo_acordes)
+                t_rel_ev = t_actual - t_inicio_grabacion_part
+                card_f = generar_tarjeta_fichas(clave_actual, modo_acordes, rosa_visible, azul_visible, verde_visible, roja_visible, beat_contador, sub_beat_contador, t_rel_ev)
+                card_p = generar_tarjeta_piano(clave_actual, modo_acordes, beat_contador, sub_beat_contador, t_rel_ev)
                 lista_cards_fichas.append(card_f)
                 lista_cards_piano.append(card_p)
                 
             clave_anterior = clave_actual
 
-        # 5. Reproduccion de Loopstation de fondo
         if estado_loop == 'PLAYING' and duracion_loop > 0 and len(eventos_grabados) > 0:
             t_en_loop = (t_actual - tiempo_inicio_reproduccion) % duracion_loop
             
@@ -621,7 +835,6 @@ def main():
                 reproducir_sonido_loop(clave_loop, modo_loop_ev, inst_loop_ev)
                 indice_evento_loop = idx_evento
 
-        # 6. Dibujado de HUD
         fichas = [
             ("ROSA", rosa_visible, c_rosa, (255, 0, 255)),
             ("AZUL", azul_visible, c_azul, (255, 0, 0)),
@@ -635,14 +848,20 @@ def main():
                 cv2.rectangle(frame_ajustado, (x, y), (x + w, y + h), color_bgr, 2)
                 cv2.putText(frame_ajustado, nombre, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_bgr, 2)
 
-        # Panel HUD Principal
         cv2.rectangle(frame_ajustado, (20, 15), (610, 150), (0, 0, 0), -1)
         cv2.rectangle(frame_ajustado, (20, 15), (610, 150), (255, 255, 255), 2)
         
         modo_str = "ACORDES" if modo_acordes else "NOTAS INDIVIDUALES"
-        
         cv2.putText(frame_ajustado, f"INSTRUMENTO: {instrumento_actual} | MODO: {modo_str}", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
         cv2.putText(frame_ajustado, f"EN VIVO: {clave_actual}", (30, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+        if metronomo_activo:
+            col_met = (0, 255, 255) if destello_metronomo else (40, 180, 40)
+            cv2.rectangle(frame_ajustado, (420, 20), (600, 85), col_met, -1)
+            cv2.rectangle(frame_ajustado, (420, 20), (600, 85), (255, 255, 255), 2)
+            cv2.circle(frame_ajustado, (445, 52), 16, (0, 0, 0) if destello_metronomo else (255, 255, 255), -1)
+            cv2.putText(frame_ajustado, "METRONOMO 60BPM", (470, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 2)
+            cv2.putText(frame_ajustado, f"PULSO {beat_contador}", (470, 68), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 0, 0), 2)
         
         if estado_loop == 'IDLE':
             loop_str = "LOOPSTATION: Inactivo (Pulsa 'R' para grabar)"
@@ -657,26 +876,32 @@ def main():
             
         cv2.putText(frame_ajustado, loop_str, (30, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color_loop, 2)
         
-        tab_str = f"TABLATURAS: GRABANDO ({len(lista_cards_fichas)} notas)" if grabando_tablatura else "TABLATURAS: Pulsa 'P' para generar"
+        tab_str = f"PARTITURA: GRABANDO ({len(lista_cards_fichas)} notas)" if grabando_tablatura else "PARTITURA: Pulsa 'P' para exportar 3 láminas"
         color_tab = (0, 0, 255) if grabando_tablatura else (180, 180, 180)
         cv2.putText(frame_ajustado, tab_str, (30, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.42, color_tab, 1)
 
-        cv2.putText(frame_ajustado, f"['I': Inst | 'M': Modo | 'R': Loop | 'P': Tablaturas | 'C': Borrar | Brillo: {incremento_brillo}]", (30, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (180, 180, 180), 1)
+        cv2.putText(frame_ajustado, f"['T': Metronomo 60BPM | 'I': Inst | 'M': Modo | 'R': Loop | 'P': Partitura | 'C': Borrar]", (30, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (180, 180, 180), 1)
 
-        cv2.imshow(nombre_ventana, frame_ajustado)
+        mostrar_imagen_segura(nombre_ventana, frame_ajustado)
         
-        # 7. Controles de Teclado
         key = cv2.waitKey(1) & 0xFF
         
-        # 'I': Cambiar Instrumento dentro del modo activo
-        if key in [ord('i'), ord('I')]:
+        if key in [ord('t'), ord('T')]:
+            metronomo_activo = not metronomo_activo
+            beat_contador = 1
+            sub_beat_contador = 1
+            t_ultimo_beat = time.time()
+            if metronomo_activo:
+                sonar_click_metronomo()
+            print(f"Metronomo 60 BPM: {'ACTIVADO' if metronomo_activo else 'DESACTIVADO'}")
+
+        elif key in [ord('i'), ord('I')]:
             idx_instrumento = (idx_instrumento + 1) % len(instrumentos_actuales)
             instrumento_actual = instrumentos_actuales[idx_instrumento]
             clave_anterior = None
             reproducir_sonido_vivo(clave_actual, modo_acordes, instrumento_actual)
             print(f"Instrumento cambiado a: {instrumento_actual}")
 
-        # 'M': Cambiar Modo (Acordes / Notas)
         elif key in [ord('m'), ord('M')]:
             modo_acordes = not modo_acordes
             instrumentos_actuales = insts_acordes if modo_acordes else insts_notas
@@ -686,25 +911,29 @@ def main():
             reproducir_sonido_vivo(clave_actual, modo_acordes, instrumento_actual)
             print(f"Modo cambiado a: {'ACORDES' if modo_acordes else 'NOTAS'} | Instrumento: {instrumento_actual}")
 
-        # 'P': Grabar / Exportar las dos tablaturas separadas
         elif key in [ord('p'), ord('P')]:
             if not grabando_tablatura:
                 grabando_tablatura = True
+                t_inicio_grabacion_part = time.time()
                 lista_cards_fichas = []
                 lista_cards_piano = []
-                print("Iniciada grabacion de tablaturas...")
+                eventos_partitura_ritmica = []
+                sub_beat_contador = 1
+                print("Iniciada grabación de partitura y tablaturas...")
             else:
                 grabando_tablatura = False
-                print("Exportando tablaturas de fichas y piano...")
-                exportar_tablaturas(lista_cards_fichas, lista_cards_piano)
+                if clave_actual != "SILENCIO":
+                    dur_sostenida = max(0.4, time.time() - t_inicio_nota_actual)
+                    eventos_partitura_ritmica.append((clave_actual, modo_acordes, beat_contador, sub_beat_contador, dur_sostenida))
+                print("Exportando 3 láminas (Fichas, Piano y Pentagrama)...")
+                exportar_tablaturas(lista_cards_fichas, lista_cards_piano, eventos_partitura_ritmica)
 
-        # 'R': Loopstation
         elif key in [ord('r'), ord('R')]:
             if estado_loop == 'IDLE':
                 estado_loop = 'RECORDING'
                 tiempo_inicio_grabacion = t_actual
                 eventos_grabados = [(0.0, clave_actual, modo_acordes, instrumento_actual)]
-                print("Grabacion de Loop iniciada...")
+                print("Grabación de Loop iniciada...")
             elif estado_loop == 'RECORDING':
                 duracion_loop = max(0.5, t_actual - tiempo_inicio_grabacion)
                 if len(eventos_grabados) > 0:
@@ -719,9 +948,8 @@ def main():
                 detener_audio_loop()
                 tiempo_inicio_grabacion = t_actual
                 eventos_grabados = [(0.0, clave_actual, modo_acordes, instrumento_actual)]
-                print("Reiniciando grabacion de nuevo Loop...")
+                print("Reiniciando grabación de nuevo Loop...")
 
-        # 'C': Limpiar Loopstation
         elif key in [ord('c'), ord('C')]:
             estado_loop = 'IDLE'
             eventos_grabados = []
@@ -741,7 +969,10 @@ def main():
             pass
         
     camara.release()
-    cv2.destroyAllWindows()
+    try:
+        cv2.destroyAllWindows()
+    except Exception:
+        pass
 
 if __name__ == '__main__':
     main()
