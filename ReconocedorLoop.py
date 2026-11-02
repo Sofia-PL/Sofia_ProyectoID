@@ -3,8 +3,9 @@ import numpy as np
 import struct
 import math
 import time
+import os
 
-# Carga de librería de audio multicanal
+# Carga de libreria de audio multicanal
 try:
     import pygame
     PYGAME_DISPONIBLE = True
@@ -18,7 +19,7 @@ except ImportError:
     WINSOUND_DISPONIBLE = False
 
 # ==========================================
-# 1. NOTAS Y ACORDES (SINTETIZADOR POLIFÓNICO)
+# 1. DEFINICION DE FRECUENCIAS Y MAPEOS
 # ==========================================
 NOTAS_SOLO = {
     "DO":  [261.63],
@@ -40,27 +41,44 @@ ACORDES = {
     "VII (Si dism)":    [493.88, 587.33, 698.46]    # B - D5 - F5
 }
 
-RUTAS_NOTAS_WAV = {}
-RUTAS_ACORDES_WAV = {}
-SONIDOS_PYGAME_NOTAS = {}
-SONIDOS_PYGAME_ACORDES = {}
+MAPEO_CLAVE_ACORDE_ARCHIVO = {
+    "I (Do Mayor)":     "I_DoM",
+    "II (Re menor)":    "II_Rem",
+    "III (Mi menor)":   "III_Mim",
+    "IV (Fa Mayor)":    "IV_FaM",
+    "V (Sol Mayor7)":   "V_SolM7",
+    "VI (La menor)":    "VI_Lam",
+    "VII (Si dism)":    "VII_Sidism"
+}
+
+# Diccionarios de rutas WAV
+RUTAS_AUDIO = {
+    "SINTETIZADOR": {"NOTAS": {}, "ACORDES": {}},
+    "PIANO":        {"NOTAS": {}, "ACORDES": {}},
+    "VIOLONCHELO":  {"NOTAS": {}, "ACORDES": {}},
+    "ORQUESTA":     {"NOTAS": {}, "ACORDES": {}}
+}
+
+# Diccionarios de Sonidos Pygame
+SONIDOS_PYGAME = {
+    "SINTETIZADOR": {"NOTAS": {}, "ACORDES": {}},
+    "PIANO":        {"NOTAS": {}, "ACORDES": {}},
+    "VIOLONCHELO":  {"NOTAS": {}, "ACORDES": {}},
+    "ORQUESTA":     {"NOTAS": {}, "ACORDES": {}}
+}
 
 canal_loop = None
 canal_vivo = None
 
-# Variable global para el ajuste interactivo de brillo mediante Trackbar
-incremento_brillo = 100  # 100 es el valor neutro inicial (rango 0 a 200)
+incremento_brillo = 100  # 100 es neutro (rango 0 a 200)
 
 def actualizar_brillo_trackbar(val):
     global incremento_brillo
     incremento_brillo = val
 
 def ajustar_brillo_frame(img, ajuste):
-    """
-    Ajusta la luminosidad del fotograma modificando el canal V (Value) en HSV.
-    Técnica oficial de la asignatura (Ejercicio 28 / VIDEO BARRA).
-    """
-    offset = ajuste - 100  # Convertir rango  a offset [-100, +100]
+    """Ajusta la luminosidad modificando el canal V (Value) en espacio HSV."""
+    offset = ajuste - 100
     if offset == 0:
         return img
     
@@ -79,7 +97,10 @@ def ajustar_brillo_frame(img, ajuste):
     hsv = cv2.merge((h, s, v))
     return cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
-def generar_bytes_wav(lista_frecuencias, duracion=1.5, sample_rate=44100):
+# ==========================================
+# 2. SINTESIS Y CARGA DE AUDIOS (1.0 seg)
+# ==========================================
+def generar_bytes_wav(lista_frecuencias, duracion=1.0, sample_rate=44100):
     num_samples = int(sample_rate * duracion)
     data_size = num_samples * 2
     header = struct.pack(
@@ -113,8 +134,23 @@ def generar_bytes_wav(lista_frecuencias, duracion=1.5, sample_rate=44100):
         
     return header + samples
 
+def registrar_audio(inst, tipo, clave, ruta):
+    if os.path.exists(ruta):
+        RUTAS_AUDIO[inst][tipo][clave] = ruta
+        if PYGAME_DISPONIBLE:
+            try:
+                SONIDOS_PYGAME[inst][tipo][clave] = pygame.mixer.Sound(ruta)
+            except Exception:
+                pass
+    else:
+        ruta_synth = RUTAS_AUDIO["SINTETIZADOR"][tipo].get(clave)
+        if ruta_synth and os.path.exists(ruta_synth):
+            RUTAS_AUDIO[inst][tipo][clave] = ruta_synth
+            if PYGAME_DISPONIBLE:
+                SONIDOS_PYGAME[inst][tipo][clave] = SONIDOS_PYGAME["SINTETIZADOR"][tipo].get(clave)
+
 def pregenerar_sonidos():
-    global RUTAS_NOTAS_WAV, RUTAS_ACORDES_WAV, PYGAME_DISPONIBLE, canal_loop, canal_vivo
+    global PYGAME_DISPONIBLE, canal_loop, canal_vivo
     
     if PYGAME_DISPONIBLE:
         try:
@@ -123,84 +159,122 @@ def pregenerar_sonidos():
             pygame.mixer.set_num_channels(8)
             canal_loop = pygame.mixer.Channel(0)
             canal_vivo = pygame.mixer.Channel(1)
-            print("Audio Pygame inicializado con soporte multicanal (Loop + Vivo).")
+            print("Audio Pygame multicanal inicializado correctamente.")
         except Exception as e:
-            print(f"Uso de audio estándar: {e}")
+            print(f"Uso de audio estandar: {e}")
             PYGAME_DISPONIBLE = False
 
+    # 1. Sintetizador (Generacion matematica a 1.0s)
     for nombre, freqs in NOTAS_SOLO.items():
-        data = generar_bytes_wav(freqs)
-        ruta = f"temp_nota_{nombre}.wav"
+        data = generar_bytes_wav(freqs, duracion=1.0)
+        ruta = f"temp_synth_nota_{nombre}.wav"
         with open(ruta, "wb") as f:
             f.write(data)
-        RUTAS_NOTAS_WAV[nombre] = ruta
+        RUTAS_AUDIO["SINTETIZADOR"]["NOTAS"][nombre] = ruta
         if PYGAME_DISPONIBLE:
-            SONIDOS_PYGAME_NOTAS[nombre] = pygame.mixer.Sound(ruta)
+            SONIDOS_PYGAME["SINTETIZADOR"]["NOTAS"][nombre] = pygame.mixer.Sound(ruta)
         
     for nombre, freqs in ACORDES.items():
         clave_limpia = "".join(e for e in nombre if e.isalnum())
-        data = generar_bytes_wav(freqs)
-        ruta = f"temp_acorde_{clave_limpia}.wav"
+        data = generar_bytes_wav(freqs, duracion=1.0)
+        ruta = f"temp_synth_acorde_{clave_limpia}.wav"
         with open(ruta, "wb") as f:
             f.write(data)
-        RUTAS_ACORDES_WAV[nombre] = ruta
+        RUTAS_AUDIO["SINTETIZADOR"]["ACORDES"][nombre] = ruta
         if PYGAME_DISPONIBLE:
-            SONIDOS_PYGAME_ACORDES[nombre] = pygame.mixer.Sound(ruta)
+            SONIDOS_PYGAME["SINTETIZADOR"]["ACORDES"][nombre] = pygame.mixer.Sound(ruta)
+
+    # 2. Cello (Notas individuales)
+    for nombre in NOTAS_SOLO.keys():
+        registrar_audio("VIOLONCHELO", "NOTAS", nombre, f"cello_{nombre}.wav")
+
+    # 3. Piano (Notas y Acordes)
+    for nombre in NOTAS_SOLO.keys():
+        registrar_audio("PIANO", "NOTAS", nombre, f"piano_nota_{nombre}.wav")
         
-    print("Sintetizador inicializado correctamente.")
+    for nombre in ACORDES.keys():
+        tag = MAPEO_CLAVE_ACORDE_ARCHIVO[nombre]
+        registrar_audio("PIANO", "ACORDES", nombre, f"piano_acorde_{tag}.wav")
 
-def reproducir_sonido_vivo(clave_actual, modo_acordes):
-    if PYGAME_DISPONIBLE and canal_vivo:
-        sound_dict = SONIDOS_PYGAME_ACORDES if modo_acordes else SONIDOS_PYGAME_NOTAS
-        if clave_actual in sound_dict:
-            canal_vivo.play(sound_dict[clave_actual], loops=-1)
-    elif WINSOUND_DISPONIBLE:
-        ruta_dict = RUTAS_ACORDES_WAV if modo_acordes else RUTAS_NOTAS_WAV
-        ruta = ruta_dict.get(clave_actual)
-        if ruta:
-            try:
-                winsound.PlaySound(ruta, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP)
-            except Exception:
-                pass
+    # 4. Orquesta (Acordes)
+    for nombre in ACORDES.keys():
+        tag = MAPEO_CLAVE_ACORDE_ARCHIVO[nombre]
+        registrar_audio("ORQUESTA", "ACORDES", nombre, f"orquesta_acorde_{tag}.wav")
 
-def reproducir_sonido_loop(clave, modo_acordes):
-    if PYGAME_DISPONIBLE and canal_loop:
-        sound_dict = SONIDOS_PYGAME_ACORDES if modo_acordes else SONIDOS_PYGAME_NOTAS
-        if clave in sound_dict:
-            canal_loop.play(sound_dict[clave], loops=-1)
-    elif WINSOUND_DISPONIBLE:
-        ruta_dict = RUTAS_ACORDES_WAV if modo_acordes else RUTAS_NOTAS_WAV
-        ruta = ruta_dict.get(clave)
+    print("Sintetizador y muestras de instrumentos inicializados correctamente.")
+
+# ==========================================
+# 3. REPRODUCCION MULTICANAL
+# ==========================================
+def obtener_recurso_audio(clave_actual, modo_acordes, instrumento):
+    if clave_actual == "SILENCIO":
+        return None
+    tipo = "ACORDES" if modo_acordes else "NOTAS"
+    
+    if PYGAME_DISPONIBLE:
+        snd = SONIDOS_PYGAME.get(instrumento, {}).get(tipo, {}).get(clave_actual)
+        if snd:
+            return snd
+        return SONIDOS_PYGAME["SINTETIZADOR"][tipo].get(clave_actual)
+    else:
+        ruta = RUTAS_AUDIO.get(instrumento, {}).get(tipo, {}).get(clave_actual)
         if ruta:
-            try:
-                winsound.PlaySound(ruta, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP)
-            except Exception:
-                pass
+            return ruta
+        return RUTAS_AUDIO["SINTETIZADOR"][tipo].get(clave_actual)
+
+def reproducir_sonido_vivo(clave_actual, modo_acordes, instrumento):
+    if clave_actual == "SILENCIO":
+        detener_audio_vivo()
+        return
+        
+    recurso = obtener_recurso_audio(clave_actual, modo_acordes, instrumento)
+    if PYGAME_DISPONIBLE and canal_vivo and recurso:
+        canal_vivo.play(recurso, loops=-1)
+    elif WINSOUND_DISPONIBLE and recurso and isinstance(recurso, str):
+        try:
+            winsound.PlaySound(recurso, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP)
+        except Exception:
+            pass
+
+def reproducir_sonido_loop(clave, modo_acordes, instrumento):
+    if clave == "SILENCIO":
+        detener_audio_loop()
+        return
+        
+    recurso = obtener_recurso_audio(clave, modo_acordes, instrumento)
+    if PYGAME_DISPONIBLE and canal_loop and recurso:
+        canal_loop.play(recurso, loops=-1)
+    elif WINSOUND_DISPONIBLE and recurso and isinstance(recurso, str):
+        try:
+            winsound.PlaySound(recurso, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP)
+        except Exception:
+            pass
 
 def detener_audio_vivo():
     if PYGAME_DISPONIBLE and canal_vivo:
         canal_vivo.stop()
+    elif WINSOUND_DISPONIBLE:
+        try:
+            winsound.PlaySound(None, winsound.SND_PURGE)
+        except Exception:
+            pass
 
 def detener_audio_loop():
     if PYGAME_DISPONIBLE and canal_loop:
         canal_loop.stop()
 
 # ==========================================
-# 2. RANGOS DE COLOR EN ESPACIO HSV
+# 4. RANGOS DE COLOR HSV Y VISIBILIDAD
 # ==========================================
-# ROSA FOSFORITO (Subrayador)
 rosa_bajo = np.array([140, 100, 100])
 rosa_alto = np.array([170, 255, 255])
 
-# AZUL
 azul_bajo = np.array([95, 100, 100])
 azul_alto = np.array([135, 255, 255])
 
-# VERDE (Subrayador verde)
 verde_bajo = np.array([40, 80, 80])
 verde_alto = np.array([85, 255, 255])
 
-# AMARILLO (Subrayador amarillo)
 amarillo_bajo = np.array([20, 100, 100])
 amarillo_alto = np.array([35, 255, 255])
 
@@ -222,6 +296,9 @@ def evaluar_visibilidad(hsv_frame, bajo, alto):
     visible = area_maxima >= UMBRAL_AREA_MINIMA
     return visible, area_maxima, contorno_max
 
+# ==========================================
+# 5. BUCLE PRINCIPAL (MAIN)
+# ==========================================
 def main():
     if WINSOUND_DISPONIBLE or PYGAME_DISPONIBLE:
         pregenerar_sonidos()
@@ -229,32 +306,29 @@ def main():
     camara = cv2.VideoCapture(1)
     
     if not camara.isOpened():
-        print("Error: No es posible abrir la cámara web.")
+        print("Error: No es posible abrir la camara web.")
         return
 
-    # Crear ventana interactiva con Trackbar de Brillo (Ejercicio VIDEO BARRA)
     nombre_ventana = "Gesture Synth OpenCV + Loopstation"
     cv2.namedWindow(nombre_ventana)
     cv2.createTrackbar("Ajuste Brillo", nombre_ventana, 100, 200, actualizar_brillo_trackbar)
 
-    print("=== SINTETIZADOR DE GESTOS + LOOPSTATION ACTIVO ===")
-    print("Controles:")
-    print(" - Mueve el deslizador 'Ajuste Brillo' en la ventana para compensar la luz ambiental.")
-    print(" - Pulsa 'R' para Empezar a Grabar / Detener y Repetir Bucle (Loop)")
-    print(" - Pulsa 'C' para Borrar el Bucle grabado")
-    print(" - Pulsa 'M' para cambiar entre MODO NOTAS y MODO ACORDES")
-    print(" - Pulsa 'q' o 'ESC' para salir.")
-
+    insts_acordes = ["SINTETIZADOR", "PIANO", "ORQUESTA"]
+    insts_notas = ["SINTETIZADOR", "PIANO", "VIOLONCHELO"]
+    
     modo_acordes = True
-    clave_actual = ""
+    instrumentos_actuales = insts_acordes
+    idx_instrumento = 0
+    instrumento_actual = instrumentos_actuales[idx_instrumento]
+
+    clave_actual = "SILENCIO"
     clave_anterior = None
 
-    # Variables de la Loopstation
-    estado_loop = 'IDLE'  # 'IDLE', 'RECORDING', 'PLAYING'
+    # Loopstation
+    estado_loop = 'IDLE'
     tiempo_inicio_grabacion = 0
     duracion_loop = 0
     eventos_grabados = []
-    
     tiempo_inicio_reproduccion = 0
     indice_evento_loop = -1
 
@@ -265,13 +339,13 @@ def main():
             
         t_actual = time.time()
         
-        # 1. Ajuste dinámico de brillo en tiempo real antes de binarizar
+        # 1. Ajuste de brillo
         frame_ajustado = ajustar_brillo_frame(frame, incremento_brillo)
         
         frame_suavizado = cv2.blur(frame_ajustado, (5, 5))
         hsv = cv2.cvtColor(frame_suavizado, cv2.COLOR_BGR2HSV)
         
-        # 2. Visibilidad y segmentación sobre la imagen corregida
+        # 2. Visibilidad HSV
         rosa_visible, _, c_rosa = evaluar_visibilidad(hsv, rosa_bajo, rosa_alto)
         azul_visible, _, c_azul = evaluar_visibilidad(hsv, azul_bajo, azul_alto)
         verde_visible, _, c_verde = evaluar_visibilidad(hsv, verde_bajo, verde_alto)
@@ -282,56 +356,52 @@ def main():
         verde_tapado = not verde_visible
         amarillo_tapado = not amarillo_visible
         
-        # Combinaciones musicales
-        if rosa_tapado and azul_tapado:
-            clave_actual = "VI (La menor)" if modo_acordes else "LA"
-            estado_texto = "Rosa + Azul Tapadas"
-        elif rosa_tapado and verde_tapado:
-            clave_actual = "VII (Si dism)" if modo_acordes else "SI"
-            estado_texto = "Rosa + Verde Tapadas"
-        elif rosa_tapado:
-            clave_actual = "II (Re menor)" if modo_acordes else "RE"
-            estado_texto = "Rosa Tapada"
-        elif azul_tapado:
-            clave_actual = "III (Mi menor)" if modo_acordes else "MI"
-            estado_texto = "Azul Tapada"
-        elif verde_tapado:
-            clave_actual = "IV (Fa Mayor)" if modo_acordes else "FA"
-            estado_texto = "Verde Tapada"
-        elif amarillo_tapado:
-            clave_actual = "V (Sol Mayor7)" if modo_acordes else "SOL"
-            estado_texto = "Amarilla Tapada"
-        else:
+        # 3. MAPEO ESTRICTO CON COMPROBACION BIDIRECCIONAL Y CONTROL DE ERRORES
+        if rosa_visible and azul_visible and verde_visible and amarillo_visible:
             clave_actual = "I (Do Mayor)" if modo_acordes else "DO"
-            estado_texto = "Todas visibles"
+        elif rosa_tapado and azul_tapado and verde_visible and amarillo_visible:
+            clave_actual = "VI (La menor)" if modo_acordes else "LA"
+        elif rosa_tapado and verde_tapado and azul_visible and amarillo_visible:
+            clave_actual = "VII (Si dism)" if modo_acordes else "SI"
+        elif rosa_tapado and azul_visible and verde_visible and amarillo_visible:
+            clave_actual = "II (Re menor)" if modo_acordes else "RE"
+        elif azul_tapado and rosa_visible and verde_visible and amarillo_visible:
+            clave_actual = "III (Mi menor)" if modo_acordes else "MI"
+        elif verde_tapado and rosa_visible and azul_visible and amarillo_visible:
+            clave_actual = "IV (Fa Mayor)" if modo_acordes else "FA"
+        elif amarillo_tapado and rosa_visible and azul_visible and verde_visible:
+            clave_actual = "V (Sol Mayor7)" if modo_acordes else "SOL"
+        else:
+            # Estado no valido / Oscuridad / Mas de 2 fichas tapadas -> SILENCIO
+            clave_actual = "SILENCIO"
 
-        # 3. Reproducción en vivo
+        # 4. Reproduccion en vivo
         if clave_actual != clave_anterior:
-            reproducir_sonido_vivo(clave_actual, modo_acordes)
+            reproducir_sonido_vivo(clave_actual, modo_acordes, instrumento_actual)
             
             if estado_loop == 'RECORDING':
                 t_rel = t_actual - tiempo_inicio_grabacion
-                eventos_grabados.append((t_rel, clave_actual, modo_acordes))
+                eventos_grabados.append((t_rel, clave_actual, modo_acordes, instrumento_actual))
                 
             clave_anterior = clave_actual
 
-        # 4. Reproducción del Loop grabado de fondo
+        # 5. Reproduccion de Loopstation de fondo
         if estado_loop == 'PLAYING' and duracion_loop > 0 and len(eventos_grabados) > 0:
             t_en_loop = (t_actual - tiempo_inicio_reproduccion) % duracion_loop
             
             idx_evento = 0
-            for i, (t_ev, _, _) in enumerate(eventos_grabados):
+            for i, (t_ev, _, _, _) in enumerate(eventos_grabados):
                 if t_en_loop >= t_ev:
                     idx_evento = i
                 else:
                     break
             
             if idx_evento != indice_evento_loop:
-                _, clave_loop, modo_loop_ev = eventos_grabados[idx_evento]
-                reproducir_sonido_loop(clave_loop, modo_loop_ev)
+                _, clave_loop, modo_loop_ev, inst_loop_ev = eventos_grabados[idx_evento]
+                reproducir_sonido_loop(clave_loop, modo_loop_ev, inst_loop_ev)
                 indice_evento_loop = idx_evento
 
-        # 5. Interfaz Gráfica (HUD)
+        # 6. Dibujado de HUD
         fichas = [
             ("ROSA", rosa_visible, c_rosa, (255, 0, 255)),
             ("AZUL", azul_visible, c_azul, (255, 0, 0)),
@@ -345,12 +415,12 @@ def main():
                 cv2.rectangle(frame_ajustado, (x, y), (x + w, y + h), color_bgr, 2)
                 cv2.putText(frame_ajustado, nombre, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_bgr, 2)
 
-        # Panel HUD de control
-        cv2.rectangle(frame_ajustado, (20, 20), (560, 140), (0, 0, 0), -1)
-        cv2.rectangle(frame_ajustado, (20, 20), (560, 140), (255, 255, 255), 2)
+        cv2.rectangle(frame_ajustado, (20, 15), (610, 150), (0, 0, 0), -1)
+        cv2.rectangle(frame_ajustado, (20, 15), (610, 150), (255, 255, 255), 2)
         
-        modo_str = "MODO: ACORDES (Gesture-Synth)" if modo_acordes else "MODO: NOTAS INDIVIDUALES"
-        cv2.putText(frame_ajustado, modo_str, (30, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+        modo_str = "ACORDES" if modo_acordes else "NOTAS INDIVIDUALES"
+        
+        cv2.putText(frame_ajustado, f"INSTRUMENTO: {instrumento_actual} | MODO: {modo_str}", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
         cv2.putText(frame_ajustado, f"EN VIVO: {clave_actual}", (30, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
         
         if estado_loop == 'IDLE':
@@ -358,26 +428,43 @@ def main():
             color_loop = (200, 200, 200)
         elif estado_loop == 'RECORDING':
             tiempo_rec = t_actual - tiempo_inicio_grabacion
-            loop_str = f" GRABANDO LOOP... ({tiempo_rec:.1f}s) - Pulsa 'R' para terminar"
+            loop_str = f"GRABANDO LOOP... ({tiempo_rec:.1f}s) - Pulsa 'R' para terminar"
             color_loop = (0, 0, 255)
         elif estado_loop == 'PLAYING':
             loop_str = f"REPRODUCIENDO LOOP ({duracion_loop:.1f}s) - Pulsa 'C' para borrar"
             color_loop = (0, 255, 0)
             
-        cv2.putText(frame_ajustado, loop_str, (30, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color_loop, 2)
-        cv2.putText(frame_ajustado, f"['R': Rec/Stop | 'C': Borrar | 'M': Modo | Nivel Brillo: {incremento_brillo}]", (30, 125), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
+        cv2.putText(frame_ajustado, loop_str, (30, 105), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color_loop, 2)
+        cv2.putText(frame_ajustado, f"['I': Inst | 'M': Modo | 'R': Rec/Stop | 'C': Borrar | Brillo: {incremento_brillo}]", (30, 135), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (180, 180, 180), 1)
 
         cv2.imshow(nombre_ventana, frame_ajustado)
         
-        # Teclas de control
+        # 7. Controles de Teclado
         key = cv2.waitKey(1) & 0xFF
         
-        if key in [ord('r'), ord('R')]:
+        # 'I': Cambiar Instrumento dentro del modo activo
+        if key in [ord('i'), ord('I')]:
+            idx_instrumento = (idx_instrumento + 1) % len(instrumentos_actuales)
+            instrumento_actual = instrumentos_actuales[idx_instrumento]
+            clave_anterior = None
+            print(f"Instrumento cambiado a: {instrumento_actual}")
+
+        # 'M': Cambiar Modo (Acordes / Notas)
+        elif key in [ord('m'), ord('M')]:
+            modo_acordes = not modo_acordes
+            instrumentos_actuales = insts_acordes if modo_acordes else insts_notas
+            idx_instrumento = 0
+            instrumento_actual = instrumentos_actuales[idx_instrumento]
+            clave_anterior = None
+            print(f"Modo cambiado a: {'ACORDES' if modo_acordes else 'NOTAS'} | Instrumento: {instrumento_actual}")
+
+        # 'R': Loopstation
+        elif key in [ord('r'), ord('R')]:
             if estado_loop == 'IDLE':
                 estado_loop = 'RECORDING'
                 tiempo_inicio_grabacion = t_actual
-                eventos_grabados = [(0.0, clave_actual, modo_acordes)]
-                print("Grabación de Loop iniciada...")
+                eventos_grabados = [(0.0, clave_actual, modo_acordes, instrumento_actual)]
+                print("Grabacion de Loop iniciada...")
             elif estado_loop == 'RECORDING':
                 duracion_loop = max(0.5, t_actual - tiempo_inicio_grabacion)
                 if len(eventos_grabados) > 0:
@@ -391,9 +478,10 @@ def main():
                 estado_loop = 'RECORDING'
                 detener_audio_loop()
                 tiempo_inicio_grabacion = t_actual
-                eventos_grabados = [(0.0, clave_actual, modo_acordes)]
-                print("Reiniciando grabación de nuevo Loop...")
+                eventos_grabados = [(0.0, clave_actual, modo_acordes, instrumento_actual)]
+                print("Reiniciando grabacion de nuevo Loop...")
 
+        # 'C': Limpiar Loopstation
         elif key in [ord('c'), ord('C')]:
             estado_loop = 'IDLE'
             eventos_grabados = []
@@ -401,17 +489,16 @@ def main():
             detener_audio_loop()
             print("Loop borrado.")
 
-        elif key in [ord('m'), ord('M')]:
-            modo_acordes = not modo_acordes
-            clave_anterior = None
-
         elif key in [ord('q'), ord('Q'), 27]:
             break
 
     detener_audio_vivo()
     detener_audio_loop()
     if WINSOUND_DISPONIBLE:
-        winsound.PlaySound(None, winsound.SND_PURGE)
+        try:
+            winsound.PlaySound(None, winsound.SND_PURGE)
+        except Exception:
+            pass
         
     camara.release()
     cv2.destroyAllWindows()
