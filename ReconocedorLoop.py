@@ -36,7 +36,7 @@ ACORDES = {
     "II (Re menor)":    [293.66, 349.23, 440.00],   # D - F - A
     "III (Mi menor)":   [329.63, 392.00, 493.88],   # E - G - B
     "IV (Fa Mayor)":    [349.23, 440.00, 523.25],   # F - A - C5
-    "V (Sol Mayor7)":   [392.00, 493.88, 587.33, 698.46], # G - B - D5 - F5
+    "V (Sol Mayor)":    [392.00, 493.88, 587.33],   # G - B - D5
     "VI (La menor)":    [440.00, 523.25, 659.25],   # A - C5 - E5
     "VII (Si dism)":    [493.88, 587.33, 698.46]    # B - D5 - F5
 }
@@ -46,7 +46,7 @@ MAPEO_CLAVE_ACORDE_ARCHIVO = {
     "II (Re menor)":    "II_Rem",
     "III (Mi menor)":   "III_Mim",
     "IV (Fa Mayor)":    "IV_FaM",
-    "V (Sol Mayor7)":   "V_SolM7",
+    "V (Sol Mayor)":    "V_SolM",
     "VI (La menor)":    "VI_Lam",
     "VII (Si dism)":    "VII_Sidism"
 }
@@ -266,17 +266,17 @@ def detener_audio_loop():
 # ==========================================
 # 4. RANGOS DE COLOR HSV Y VISIBILIDAD
 # ==========================================
-rosa_bajo = np.array([140, 100, 100])
-rosa_alto = np.array([170, 255, 255])
+rosa_bajo = np.array([140, 80, 80])
+rosa_alto = np.array([175, 255, 255])
 
-azul_bajo = np.array([95, 100, 100])
-azul_alto = np.array([135, 255, 255])
+azul_bajo = np.array([90, 80, 80])
+azul_alto = np.array([130, 255, 255])
 
-verde_bajo = np.array([40, 80, 80])
+verde_bajo = np.array([35, 80, 80])
 verde_alto = np.array([85, 255, 255])
 
-amarillo_bajo = np.array([20, 100, 100])
-amarillo_alto = np.array([35, 255, 255])
+amarillo_bajo = np.array([20, 80, 80])
+amarillo_alto = np.array([34, 255, 255])
 
 UMBRAL_AREA_MINIMA = 3000
 
@@ -297,7 +297,74 @@ def evaluar_visibilidad(hsv_frame, bajo, alto):
     return visible, area_maxima, contorno_max
 
 # ==========================================
-# 5. BUCLE PRINCIPAL (MAIN)
+# 5. GENERACION DE PARTITURA VISUAL / TABLATURA
+# ==========================================
+def generar_tarjeta_nota(clave, rosa_vis, azul_vis, verde_vis, amarillo_vis):
+    """
+    Crea una miniatura (200x160 px) que representa visualmente la posicion de la mano 
+    y el nombre del acorde/nota grabado.
+    """
+    tarjeta = np.zeros((160, 200, 3), dtype=np.uint8)
+    cv2.rectangle(tarjeta, (0, 0), (200, 160), (255, 255, 255), 2)
+    
+    fichas_coords = [
+        ("R", rosa_vis, (25, 40), (255, 0, 255)),
+        ("A", azul_vis, (75, 40), (255, 0, 0)),
+        ("V", verde_vis, (125, 40), (0, 255, 0)),
+        ("Y", amarillo_vis, (175, 40), (0, 255, 255))
+    ]
+    
+    for nombre_f, visible, (cx, cy), color_bgr in fichas_coords:
+        if visible:
+            cv2.circle(tarjeta, (cx, cy), 14, color_bgr, -1)
+            cv2.putText(tarjeta, nombre_f[0], (cx - 5, cy + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
+        else:
+            cv2.circle(tarjeta, (cx, cy), 14, (60, 60, 60), -1)
+            cv2.line(tarjeta, (cx - 8, cy - 8), (cx + 8, cy + 8), (0, 0, 255), 2)
+            cv2.line(tarjeta, (cx - 8, cy + 8), (cx + 8, cy - 8), (0, 0, 255), 2)
+            
+    cv2.rectangle(tarjeta, (10, 85), (190, 145), (30, 30, 30), -1)
+    cv2.rectangle(tarjeta, (10, 85), (190, 145), (180, 180, 180), 1)
+    cv2.putText(tarjeta, clave, (15, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+    return tarjeta
+
+def exportar_partitura_final(lista_tarjetas, nombre_salida="partitura_generada.png"):
+    """
+    Organiza las tarjetas de notas en filas de 4 columnas formando una lamina de partitura visual.
+    """
+    if len(lista_tarjetas) == 0:
+        print("No se grabaron eventos para exportar la partitura.")
+        return
+        
+    columnas = 4
+    filas = math.ceil(len(lista_tarjetas) / columnas)
+    
+    tarjetas_completas = list(lista_tarjetas)
+    tarjeta_vacía = np.zeros((160, 200, 3), dtype=np.uint8)
+    while len(tarjetas_completas) % columnas != 0:
+        tarjetas_completas.append(tarjeta_vacía)
+        
+    filas_concatenadas = []
+    for f in range(filas):
+        bloque_fila = tarjetas_completas[f * columnas : (f + 1) * columnas]
+        fila_img = np.hstack(bloque_fila)
+        filas_concatenadas.append(fila_img)
+        
+    partitura_final = np.vstack(filas_concatenadas)
+    
+    # Encabezado
+    ancho_p = partitura_final.shape[1]
+    encabezado = np.zeros((60, ancho_p, 3), dtype=np.uint8)
+    cv2.putText(encabezado, "PARTITURA VISUAL / TABLATURA DE GESTOS", (20, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+    
+    partitura_completa = np.vstack([encabezado, partitura_final])
+    
+    cv2.imwrite(nombre_salida, partitura_completa)
+    cv2.imshow("Partitura Visual Generada", partitura_completa)
+    print(f"Partitura visual exportada con exito en: {nombre_salida}")
+
+# ==========================================
+# 6. BUCLE PRINCIPAL (MAIN)
 # ==========================================
 def main():
     if WINSOUND_DISPONIBLE or PYGAME_DISPONIBLE:
@@ -332,11 +399,17 @@ def main():
     tiempo_inicio_reproduccion = 0
     indice_evento_loop = -1
 
+    # Partitura Visual
+    grabando_partitura = False
+    lista_tarjetas_partitura = []
+
     while True:
         ret, frame = camara.read()
         if not ret:
             break
             
+        # Volteo horizontal para efecto espejo natural
+        frame = cv2.flip(frame, 1)
         t_actual = time.time()
         
         # 1. Ajuste de brillo
@@ -370,18 +443,22 @@ def main():
         elif verde_tapado and rosa_visible and azul_visible and amarillo_visible:
             clave_actual = "IV (Fa Mayor)" if modo_acordes else "FA"
         elif amarillo_tapado and rosa_visible and azul_visible and verde_visible:
-            clave_actual = "V (Sol Mayor7)" if modo_acordes else "SOL"
+            clave_actual = "V (Sol Mayor)" if modo_acordes else "SOL"
         else:
             # Estado no valido / Oscuridad / Mas de 2 fichas tapadas -> SILENCIO
             clave_actual = "SILENCIO"
 
-        # 4. Reproduccion en vivo
+        # 4. Reproduccion en vivo y grabacion de eventos
         if clave_actual != clave_anterior:
             reproducir_sonido_vivo(clave_actual, modo_acordes, instrumento_actual)
             
             if estado_loop == 'RECORDING':
                 t_rel = t_actual - tiempo_inicio_grabacion
                 eventos_grabados.append((t_rel, clave_actual, modo_acordes, instrumento_actual))
+                
+            if grabando_partitura and clave_actual != "SILENCIO":
+                tarjeta = generar_tarjeta_nota(clave_actual, rosa_visible, azul_visible, verde_visible, amarillo_visible)
+                lista_tarjetas_partitura.append(tarjeta)
                 
             clave_anterior = clave_actual
 
@@ -415,6 +492,7 @@ def main():
                 cv2.rectangle(frame_ajustado, (x, y), (x + w, y + h), color_bgr, 2)
                 cv2.putText(frame_ajustado, nombre, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_bgr, 2)
 
+        # Panel HUD Principal
         cv2.rectangle(frame_ajustado, (20, 15), (610, 150), (0, 0, 0), -1)
         cv2.rectangle(frame_ajustado, (20, 15), (610, 150), (255, 255, 255), 2)
         
@@ -434,8 +512,13 @@ def main():
             loop_str = f"REPRODUCIENDO LOOP ({duracion_loop:.1f}s) - Pulsa 'C' para borrar"
             color_loop = (0, 255, 0)
             
-        cv2.putText(frame_ajustado, loop_str, (30, 105), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color_loop, 2)
-        cv2.putText(frame_ajustado, f"['I': Inst | 'M': Modo | 'R': Rec/Stop | 'C': Borrar | Brillo: {incremento_brillo}]", (30, 135), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (180, 180, 180), 1)
+        cv2.putText(frame_ajustado, loop_str, (30, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color_loop, 2)
+        
+        part_str = f"PARTITURA: GRABANDO ({len(lista_tarjetas_partitura)} notas)" if grabando_partitura else "PARTITURA: Pulsa 'P' para generar tablatura"
+        color_part = (0, 0, 255) if grabando_partitura else (180, 180, 180)
+        cv2.putText(frame_ajustado, part_str, (30, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.42, color_part, 1)
+
+        cv2.putText(frame_ajustado, f"['I': Inst | 'M': Modo | 'R': Loop | 'P': Partitura | 'C': Borrar | Brillo: {incremento_brillo}]", (30, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (180, 180, 180), 1)
 
         cv2.imshow(nombre_ventana, frame_ajustado)
         
@@ -457,6 +540,17 @@ def main():
             instrumento_actual = instrumentos_actuales[idx_instrumento]
             clave_anterior = None
             print(f"Modo cambiado a: {'ACORDES' if modo_acordes else 'NOTAS'} | Instrumento: {instrumento_actual}")
+
+        # 'P': Modo Partitura Visual
+        elif key in [ord('p'), ord('P')]:
+            if not grabando_partitura:
+                grabando_partitura = True
+                lista_tarjetas_partitura = []
+                print("Iniciada grabacion de partitura visual...")
+            else:
+                grabando_partitura = False
+                print("Exportando partitura visual...")
+                exportar_partitura_final(lista_tarjetas_partitura)
 
         # 'R': Loopstation
         elif key in [ord('r'), ord('R')]:
