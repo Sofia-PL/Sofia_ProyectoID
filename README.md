@@ -1,6 +1,6 @@
 # Sintetizador Gestual OpenCV + Loopstation
 
-![Esquema del proyecto: webcam, pantalla y fichas de colores](docs/proyecto.png)
+![Esquema del proyecto: webcam, pantalla y fichas de colores](proyecto.png)
 
 Instrumento musical controlado con visión artificial: la webcam observa fichas de colores y, según cuáles tapes con la mano, el programa toca notas o acordes. Además permite grabar bucles sincronizados con un metrónomo y exportar lo tocado como partitura y tablaturas.
 
