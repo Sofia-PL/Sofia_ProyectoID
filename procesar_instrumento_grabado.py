@@ -41,7 +41,7 @@ DIR_AUDIOS = os.path.join(DIRECTORIO_SCRIPT, "audios")             # Salida: mue
 SAMPLE_RATE = 44100   # Calidad estándar de audio CD
  
 # ***********************************************************************
-# CONFIGURACIÓN DE TUS GRABACIONES Y MARCAS DE TIEMPO
+# CONFIGURACIÓN DE GRABACIONES Y MARCAS DE TIEMPO
 # ***********************************************************************
 # Cada entrada indica:
 #   archivo   -> vídeo dentro de la carpeta grabaciones/
