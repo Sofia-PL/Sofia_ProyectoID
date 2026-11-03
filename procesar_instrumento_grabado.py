@@ -31,18 +31,18 @@ except ImportError:
     except ImportError:
         MOVIEPY_OK = False
  
-# ==============================================================
+# ***********************************************************************
 # CARPETAS Y AJUSTES GENERALES
-# ==============================================================
+# ***********************************************************************
 DIRECTORIO_SCRIPT = os.path.dirname(os.path.abspath(__file__))
 DIR_GRABACIONES = os.path.join(DIRECTORIO_SCRIPT, "grabaciones")   # Entrada: vídeos .mp4
 DIR_AUDIOS = os.path.join(DIRECTORIO_SCRIPT, "audios")             # Salida: muestras .wav
  
 SAMPLE_RATE = 44100   # Calidad estándar de audio CD
  
-# ==============================================================
+# ***********************************************************************
 # CONFIGURACIÓN DE TUS GRABACIONES Y MARCAS DE TIEMPO
-# ==============================================================
+# ***********************************************************************
 # Cada entrada indica:
 #   archivo   -> vídeo dentro de la carpeta grabaciones/
 #   prefijo   -> inicio del nombre de los .wav de salida (prefijo_ETIQUETA.wav)
@@ -112,9 +112,9 @@ GRABACIONES = [
 ]
  
  
-# ==============================================================
+# ***********************************************************************
 # FUNCIONES
-# ==============================================================
+# ***********************************************************************
 def extraer_audio_wav(archivo_mp4, archivo_wav_salida):
     """Extrae la pista de audio del .mp4 y la guarda como .wav 44.1 kHz mono de 16 bits."""
     audio = AudioFileClip(archivo_mp4)
