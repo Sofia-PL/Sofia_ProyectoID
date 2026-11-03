@@ -3,8 +3,7 @@ practicasID/
 venv/
 env/
 
-# Archivos temporales de audio generados por el sintetizador
-*.wav
+
 
 # Archivos de caché de Python
 __pycache__/
